@@ -16,16 +16,12 @@ TIMEFRAME = '4h'
 LEVERAGE = 5
 MAX_LONG_SIZE_USDT = 2000
 LOOP_INTERVAL_MINUTES = 30
-DRY_RUN = True  # Set to False to enable actual trading
+DRY_RUN = False  # Set to False to enable actual trading
 
 class AutoTrader:
     def __init__(self):
-        # Initialize Binance
-        # Make sure your API keys in .env have Futures trading enabled
         binance_api_key = os.getenv("BINANCE_API_KEY")
         binance_secret_key = os.getenv("BINANCE_SECRET_KEY")
-        
-        # Initialize Gemini
         gemini_api_key = os.getenv("GEMINI_API_KEY")
 
         if not binance_api_key or not binance_secret_key:
@@ -34,12 +30,14 @@ class AutoTrader:
             raise ValueError("Missing Gemini API key in .env")
 
         print("Initializing Binance USDS-M Futures...")
-        self.exchange = ccxt.binanceusdm({
+        # 최신 CCXT 표준 객체 초기화 (헤지 모드 명시)
+        self.exchange = ccxt.binance({
             'apiKey': binance_api_key,
             'secret': binance_secret_key,
             'enableRateLimit': True,
             'options': {
-                'defaultType': 'future'
+                'defaultType': 'future',
+                'positionMode': True
             }
         })
 
@@ -47,85 +45,66 @@ class AutoTrader:
         self.setup_exchange()
 
     def setup_exchange(self):
-        """Configure hedge mode, leverage, and margin type."""
         try:
-            # Set Hedge Mode (Position Mode)
-            position_mode = self.exchange.fapiPrivateGetPositionSideDual()
-            if position_mode.get('dualSidePosition') == False or position_mode.get('dualSidePosition') == 'false':
-                print("Enabling Hedge Mode (Dual Side Position)...")
-                self.exchange.fapiPrivatePostPositionSideDual({'dualSidePosition': 'true'})
-            else:
-                print("Hedge Mode already enabled.")
-                
-            # Note: setting cross margin using ccxt can sometimes be tricky for specific symbols, 
-            # we'll try to set leverage first.
-            try:
-                print(f"Setting leverage for {SYMBOL} to {LEVERAGE}x...")
-                self.exchange.set_leverage(LEVERAGE, SYMBOL)
-            except Exception as e:
-                print(f"Leverage setting info: {e}")
+            self.exchange.load_markets()
+            self.exchange.set_position_mode(True)
+            print("Hedge Mode (Dual Side Position) enabled/verified.")
             
-            try:
-                # Set multi-asset or cross margin if necessary. Note: set_margin_mode requires symbol
-                print(f"Setting margin mode to CROSS for {SYMBOL}...")
-                self.exchange.set_margin_mode('cross', SYMBOL)
-            except Exception as e:
-                print(f"Margin mode info/warning: {e} (Usually means it's already set or not applicable like this)")
+            print(f"Setting leverage for {SYMBOL} to {LEVERAGE}x...")
+            self.exchange.set_leverage(LEVERAGE, SYMBOL)
+            
+            print(f"Setting margin mode to CROSS for {SYMBOL}...")
+            self.exchange.set_margin_mode('cross', SYMBOL)
         except Exception as e:
-            print(f"Error during exchange setup: {e}")
+            print(f"Setup info/warning (Usually means it's already set): {e}")
 
     def fetch_data(self):
-        """Fetch 4H candles and calculate technical indicators."""
         print(f"Fetching {TIMEFRAME} candles for {SYMBOL}...")
         try:
-            # Fetch 100 recent candles to calculate indicators (like moving averages requiring history)
             ohlcv = self.exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=100)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             
-            # Calculate Technical Indicators using pandas_ta
             df.ta.macd(append=True)
             df.ta.rsi(length=14, append=True)
             df.ta.sma(length=20, append=True)
             df.ta.ema(length=50, append=True)
             df.ta.bbands(length=20, append=True)
             
-            # Fill NaN values to avoid issues with LLM interpretation
             df.bfill(inplace=True)
-            
             return df
         except Exception as e:
             print(f"Error fetching data: {e}")
             return None
 
     def get_account_state(self):
-        """Fetch current balance, positions, and open orders."""
         try:
             balance = self.exchange.fetch_balance()
-            usdt_free = balance.get('USDT', {}).get('free', 0.0)
-            usdt_total = balance.get('USDT', {}).get('total', 0.0)
+            usdt_free = float(balance.get('USDT', {}).get('free', 0.0))
+            usdt_total = float(balance.get('USDT', {}).get('total', 0.0))
             
             positions = self.exchange.fetch_positions([SYMBOL])
-            long_pos = next((p for p in positions if p['side'] == 'long'), None)
-            short_pos = next((p for p in positions if p['side'] == 'short'), None)
+            long_pos = next((p for p in positions if p.get('side') == 'long'), None)
+            short_pos = next((p for p in positions if p.get('side') == 'short'), None)
             
             open_orders = self.exchange.fetch_open_orders(SYMBOL)
             
+            # KeyError를 막기 위한 안전한 딕셔너리 참조 (get 메서드 사용)
             return {
                 'usdt_free': usdt_free,
                 'usdt_total': usdt_total,
                 'long_position': {
-                    'notional': long_pos['notional'] if long_pos else 0,
-                    'entryPrice': long_pos['entryPrice'] if long_pos else 0,
-                    'unrealizedPnl': long_pos['unrealizedPnl'] if long_pos else 0,
+                    'notional': float(long_pos['info'].get('notional', 0)) if long_pos else 0.0,
+                    'entryPrice': float(long_pos.get('entryPrice', 0)) if long_pos else 0.0,
+                    'unrealizedPnl': float(long_pos.get('unrealizedPnl', 0)) if long_pos else 0.0,
                 },
                 'short_position': {
-                    'notional': short_pos['notional'] if short_pos else 0,
-                    'entryPrice': short_pos['entryPrice'] if short_pos else 0,
-                    'unrealizedPnl': short_pos['unrealizedPnl'] if short_pos else 0,
+                    'notional': float(short_pos['info'].get('notional', 0)) if short_pos else 0.0,
+                    'entryPrice': float(short_pos.get('entryPrice', 0)) if short_pos else 0.0,
+                    'unrealizedPnl': float(short_pos.get('unrealizedPnl', 0)) if short_pos else 0.0,
                 },
                 'open_orders': [
-                    {'id': o['id'], 'side': o['side'], 'type': o['type'], 'price': o['price'], 'amount': o['amount'], 'positionSide': o['info'].get('positionSide')}
+                    {'id': o['id'], 'side': o['side'], 'type': o['type'], 'price': o['price'], 'amount': o['amount'], 'positionSide': o.get('info', {}).get('positionSide')}
                     for o in open_orders
                 ]
             }
@@ -134,9 +113,7 @@ class AutoTrader:
             return None
 
     def get_gemini_signal(self, df, account_state):
-        """Analyze data using Gemini 3.1 Pro and get trading signals."""
         print("Analyzing data with Gemini 3.1 Pro...")
-
         recent_data = df.tail(10).to_dict(orient='records')
         
         system_instruction = f"""You are an advanced quantitative trading AI for Binance USD-M Futures.
@@ -158,30 +135,20 @@ RULES AND CONSTRAINTS:
 Respond ONLY with a valid JSON format (without markdown code blocks) representing your trading decision.
 Format:
 {{
-    "reasoning": "Explain your technical analysis of the 4H trends, indicators, and why you are placing these orders...",
+    "reasoning": "Explain your analysis...",
     "orders": [
         {{
             "side": "buy",
             "positionSide": "LONG",
             "type": "limit",
-            "amount_usdt": <amount in USDT to add to position>,
-            "price": <entry price limit>,
-            "take_profit_price": <take profit target limit>
-        }},
-        {{
-            "side": "sell",
-            "positionSide": "SHORT",
-            "type": "limit",
-            "amount_usdt": <amount in USDT to add to position>,
+            "amount_usdt": <amount in USDT>,
             "price": <entry price limit>,
             "take_profit_price": <take profit target limit>
         }}
     ],
     "cancel_all_open_orders": true/false
 }}
-If no new entries are recommended based on your constraints, or if doing so would exceed the constraints, return an empty "orders" array.
 """
-        
         prompt = f"""
 Current Account State:
 USDT Free: {account_state['usdt_free']}
@@ -195,8 +162,9 @@ Last prices from 4H Candles:
 Based on this, what are your next orders?
 """
         try:
+            # 올바른 모델 이름 사용 (preview)
             response = self.client.models.generate_content(
-                model='gemini-3.1-pro',
+                model='gemini-3.1-pro-preview',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -209,22 +177,16 @@ Based on this, what are your next orders?
             return None
 
     def execute_orders(self, signal_text):
-        """Parse the LLM signal and execute actual trades."""
-        if not signal_text:
-            return
+        if not signal_text: return
 
         try:
-            # Strip markdown if present
             signal_text = signal_text.replace("```json\n", "").replace("```\n", "").replace("```", "")
             decision = json.loads(signal_text)
             print(f"AI Reasoning: {decision.get('reasoning')}")
 
             if decision.get('cancel_all_open_orders'):
                 print("Canceling all open orders as instructed by AI...")
-                if not DRY_RUN:
-                    self.exchange.cancel_all_orders(SYMBOL)
-                else:
-                    print(f"[DRY RUN] Would cancel all open orders for {SYMBOL}")
+                if not DRY_RUN: self.exchange.cancel_all_orders(SYMBOL)
 
             orders = decision.get('orders', [])
             if not orders:
@@ -232,138 +194,94 @@ Based on this, what are your next orders?
                 return
 
             for order in orders:
-                side = order.get('side') # 'buy' or 'sell'
-                pos_side = order.get('positionSide') # 'LONG' or 'SHORT'
+                side = order.get('side') 
+                pos_side = order.get('positionSide') 
                 amount_usdt = float(order.get('amount_usdt', 0))
                 price = float(order.get('price', 0))
-                tp_price = order.get('take_profit_price')
+                tp_price = float(order.get('take_profit_price', 0))
 
-                if amount_usdt <= 0 or price <= 0:
-                    continue
+                if amount_usdt <= 0 or price <= 0: continue
                 
-                # Calculate coin amount
-                amount_coin = amount_usdt / price
-                amount_coin = self.exchange.amount_to_precision(SYMBOL, amount_coin)
+                amount_coin = float(self.exchange.amount_to_precision(SYMBOL, amount_usdt / price))
                 
                 print(f"Action: {side.upper()} {amount_coin} {SYMBOL} at {price} mapping to {pos_side}")
                 
                 if not DRY_RUN:
                     try:
-                        # Place Entry Order
+                        # 1. 진입(Entry) 주문 즉시 전송
                         entry_val = self.exchange.create_order(
-                            symbol=SYMBOL,
-                            type='limit',
-                            side=side,
-                            amount=float(amount_coin),
-                            price=price,
-                            params={'positionSide': pos_side}
+                            symbol=SYMBOL, type='limit', side=side,
+                            amount=amount_coin, price=price, params={'positionSide': pos_side}
                         )
-                        print(f"Successfully placed entry order: {entry_val['id']}")
+                        print(f"✅ 진입 주문 접수 완료: {entry_val['id']}")
                         
-                        # Place TP Order
-                        if tp_price and float(tp_price) > 0:
+                        # 2. 익절(TP) 주문 대기 없이 즉시 전송
+                        if tp_price > 0:
                             tp_side = 'sell' if side == 'buy' else 'buy'
                             tp_val = self.exchange.create_order(
-                                symbol=SYMBOL,
-                                type='limit',
-                                side=tp_side,
-                                amount=float(amount_coin),
-                                price=float(tp_price),
-                                params={'positionSide': pos_side} # TP must match the SAME positionSide!
+                                symbol=SYMBOL, type='limit', side=tp_side,
+                                amount=amount_coin, price=tp_price,
+                                params={'positionSide': pos_side} 
                             )
-                            print(f"Successfully placed take profit order: {tp_val['id']}")
-
+                            print(f"🎯 익절(TP) 주문 동시 접수 완료: {tp_val['id']}")
+                            
                     except Exception as e:
                         print(f"Error executing trade: {e}")
                 else:
-                    print(f"[DRY RUN] Would place {side.upper()} limit for {amount_coin} coins at {price} (PositionSide: {pos_side})")
-                    if tp_price and float(tp_price) > 0:
+                    print(f"[DRY RUN] Limit Entry: {side.upper()} {amount_coin} at {price} ({pos_side})")
+                    if tp_price > 0:
                         tp_side = 'sell' if side == 'buy' else 'buy'
-                        print(f"[DRY RUN] Would place TP {tp_side.upper()} limit for {amount_coin} coins at {tp_price} (PositionSide: {pos_side})")
+                        print(f"[DRY RUN] Would place TP {tp_side.upper()} limit for {amount_coin} coins at {tp_price} ({pos_side})")
 
-        except json.JSONDecodeError as e:
-            print(f"Error parsing Gemini JSON output: {e}")
-            print(f"Raw output was:\n{signal_text}")
         except Exception as e:
             print(f"Unexpected error in execute_orders: {e}")
 
     def check_short_position_constraint(self, account_state):
-        """
-        Verify that the total short_size does not exceed the current long_size.
-        If it does (e.g., due to a LONG take-profit hitting), reduce the short position.
-        """
         long_notional = float(account_state['long_position']['notional'])
         short_notional = float(account_state['short_position']['notional'])
 
         if short_notional > long_notional:
-            print(f"Constraint Violation: Short size ({short_notional}) exceeds Long size ({long_notional}).")
+            print(f"🚨 Constraint Violation: Short({short_notional}) exceeds Long({long_notional}).")
             excess_short_notional = short_notional - long_notional
-            
-            # We need to buy to reduce the short position.
-            # Get the current price from the last candle or just use a market order to reduce immediately.
-            # To be safe and ensure the constraint is met immediately, a market order is best.
-            print(f"Reducing short position by {excess_short_notional} USDT.")
             
             if not DRY_RUN:
                 try:
-                    # In ccxt for Binance USD-M futures, we can place a market buy to close the short.
-                    # We need the amount in coins. We can fetch the current ticker or use the entry price as a rough estimate for amount calculation,
-                    # but it's better to fetch the ticker to get the exact current amount needed.
                     ticker = self.exchange.fetch_ticker(SYMBOL)
                     current_price = ticker['last']
-                    amount_coin_to_reduce = excess_short_notional / current_price
-                    amount_coin_to_reduce = self.exchange.amount_to_precision(SYMBOL, amount_coin_to_reduce)
+                    amount_coin_to_reduce = float(self.exchange.amount_to_precision(SYMBOL, excess_short_notional / current_price))
                     
-                    if float(amount_coin_to_reduce) > 0:
+                    if amount_coin_to_reduce > 0:
                         reduce_val = self.exchange.create_order(
-                            symbol=SYMBOL,
-                            type='market',
-                            side='buy',
-                            amount=float(amount_coin_to_reduce),
-                            params={'positionSide': 'SHORT'} # Important: buy on the SHORT side to reduce it
+                            symbol=SYMBOL, type='market', side='buy',
+                            amount=amount_coin_to_reduce, params={'positionSide': 'SHORT'}
                         )
-                        print(f"Successfully reduced short position: {reduce_val['id']}")
-                    else:
-                        print("Amount to reduce is too small.")
+                        print(f"✅ 숏 포지션 강제 축소 완료: {reduce_val['id']}")
                 except Exception as e:
                     print(f"Error reducing short position: {e}")
             else:
-                print(f"[DRY RUN] Would place MARKET BUY to reduce SHORT position by roughly {excess_short_notional} USDT.")
-        else:
-            print("Short position constraint check passed.")
+                print(f"[DRY RUN] Would MARKET BUY to reduce SHORT by {excess_short_notional} USDT.")
 
     def run(self):
-        print("Bot initialized successfully. Starting main loop.")
+        print("🚀 AutoTrader Bot initialized. Starting main loop.")
         while True:
             try:
                 print(f"\n--- Waking up ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---")
                 
-                # 1. Fetch 4H candles and Indicators
                 df = self.fetch_data()
                 if df is None or df.empty:
-                    print("Failed to fetch data, retrying in 1 minute...")
-                    time.sleep(60)
-                    continue
+                    time.sleep(60); continue
                 
-                # 2. Fetch Account State
                 account_state = self.get_account_state()
                 if account_state is None:
-                    print("Failed to fetch account state, retrying in 1 minute...")
-                    time.sleep(60)
-                    continue
+                    time.sleep(60); continue
                 
-                # 2.5 Ensure constraints are met before asking Gemini
                 self.check_short_position_constraint(account_state)
-                # Re-fetch state if we adjusted it
-                account_state = self.get_account_state()
+                if not DRY_RUN: account_state = self.get_account_state()
                 
-                # 3. Get LLM Prediction and JSON signal
                 signal = self.get_gemini_signal(df, account_state)
-                
-                # 4. Execute orders based on parsed signal
                 self.execute_orders(signal)
                 
-                print(f"Sleeping for {LOOP_INTERVAL_MINUTES} minutes...")
+                print(f"💤 Sleeping for {LOOP_INTERVAL_MINUTES} minutes...")
                 time.sleep(LOOP_INTERVAL_MINUTES * 60)
                 
             except Exception as e:
@@ -374,5 +292,7 @@ if __name__ == "__main__":
     try:
         trader = AutoTrader()
         trader.run()
+    except KeyboardInterrupt:
+        print("\n🛑 Bot safely stopped by user (Ctrl+C).")
     except Exception as e:
         print(f"Fatal error: {e}")
