@@ -16,7 +16,6 @@ TIMEFRAME = '4h'
 LEVERAGE = 5
 MAX_LONG_SIZE_USDT = 2000
 LOOP_INTERVAL_MINUTES = 10
-DRY_RUN = False  # 실전 가동 (False)
 
 class AutoTrader:
     def __init__(self):
@@ -190,87 +189,82 @@ Based on this, what are your next orders?
 
             if decision.get('cancel_all_open_orders'):
                 print("Canceling all open orders as instructed by AI...")
-                if not DRY_RUN: 
-                    cancel_success = False
-                    for _ in range(3):
+                
+                cancel_success = False
+                for _ in range(3):
+                    try:
+                        self.exchange.cancel_all_orders(SYMBOL)
+                        cancel_success = True
+                        time.sleep(1) # API 동기화 대기
+                        break
+                    except Exception as e:
+                        print(f"⚠️ 기존 주문 취소 실패 (1초 후 재시도...): {e}")
+                        time.sleep(1)
+                        
+                if not cancel_success:
+                    print("🚨 기존 방패(TP) 취소에 3회 연속 실패했습니다! 중복 주문 꼬임 대참사를 막기 위해 이번 턴의 진입/익절을 안전하게 포기합니다.")
+                    return 
+                
+                positions = self.exchange.fetch_positions([SYMBOL])
+                long_pos = next((p for p in positions if p.get('side') == 'long'), None)
+                short_pos = next((p for p in positions if p.get('side') == 'short'), None)
+                
+                long_contracts = float(long_pos.get('contracts', 0)) if long_pos else 0.0
+                short_contracts = float(short_pos.get('contracts', 0)) if short_pos else 0.0
+                
+                existing_tp = decision.get('existing_position_tp') or {}
+                
+                l_tp = float(existing_tp.get('LONG') or 0)
+                s_tp = float(existing_tp.get('SHORT') or 0)
+                latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
+                
+                # 롱 방패 복구
+                if long_contracts > 0 and l_tp > 0:
+                    tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
+                    if l_tp > latest_price:
                         try:
-                            self.exchange.cancel_all_orders(SYMBOL)
-                            cancel_success = True
-                            time.sleep(1) # API 동기화 대기
-                            break
+                            self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=None, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str), 'closePosition': True})
+                            print(f"🛡️ 기존 롱 포지션 익절(TP) 복구 완료: {tp_str}")
                         except Exception as e:
-                            print(f"⚠️ 기존 주문 취소 실패 (1초 후 재시도...): {e}")
-                            time.sleep(1)
-                            
-                    if not cancel_success:
-                        print("🚨 기존 방패(TP) 취소에 3회 연속 실패했습니다! 중복 주문 꼬임 대참사를 막기 위해 이번 턴의 진입/익절을 안전하게 포기합니다.")
-                        return 
-                    
-                    positions = self.exchange.fetch_positions([SYMBOL])
-                    long_pos = next((p for p in positions if p.get('side') == 'long'), None)
-                    short_pos = next((p for p in positions if p.get('side') == 'short'), None)
-                    
-                    long_contracts = float(long_pos.get('contracts', 0)) if long_pos else 0.0
-                    short_contracts = float(short_pos.get('contracts', 0)) if short_pos else 0.0
-                    
-                    existing_tp = decision.get('existing_position_tp') or {}
-                    
-                    l_tp = float(existing_tp.get('LONG') or 0)
-                    s_tp = float(existing_tp.get('SHORT') or 0)
-                    latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
-                    
-                    # 롱 방패 복구
-                    if long_contracts > 0 and l_tp > 0:
-                        tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
-                        if l_tp > latest_price:
-                            try:
-                                self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=None, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str), 'closePosition': True})
-                                print(f"🛡️ 기존 롱 포지션 익절(TP) 복구 완료: {tp_str}")
-                            except Exception as e:
-                                print(f"⚠️ 롱 포지션 TP 복구 실패: {e}")
-                        else:
-                            try:
-                                print(f"🚨 현재가({latest_price})가 롱 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
-                                self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=long_contracts, params={'positionSide': 'LONG'})
-                            except Exception as e:
-                                print(f"⚠️ 롱 시장가 익절 실패: {e}")
-                    
-                    # 숏 방패 복구
-                    if short_contracts > 0 and s_tp > 0:
-                        tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
-                        if s_tp < latest_price:
-                            try:
-                                self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=None, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
-                                print(f"🛡️ 기존 숏 포지션 익절(TP) 복구 완료: {tp_str}")
-                            except Exception as e:
-                                print(f"⚠️ 숏 포지션 TP 복구 실패: {e}")
-                        else:
-                            try:
-                                print(f"🚨 현재가({latest_price})가 숏 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
-                                self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=short_contracts, params={'positionSide': 'SHORT'})
-                            except Exception as e:
-                                print(f"⚠️ 숏 시장가 익절 실패: {e}")
+                            print(f"⚠️ 롱 포지션 TP 복구 실패: {e}")
+                    else:
+                        try:
+                            print(f"🚨 현재가({latest_price})가 롱 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
+                            self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=long_contracts, params={'positionSide': 'LONG'})
+                        except Exception as e:
+                            print(f"⚠️ 롱 시장가 익절 실패: {e}")
+                
+                # 숏 방패 복구
+                if short_contracts > 0 and s_tp > 0:
+                    tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
+                    if s_tp < latest_price:
+                        try:
+                            self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=None, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
+                            print(f"🛡️ 기존 숏 포지션 익절(TP) 복구 완료: {tp_str}")
+                        except Exception as e:
+                            print(f"⚠️ 숏 포지션 TP 복구 실패: {e}")
+                    else:
+                        try:
+                            print(f"🚨 현재가({latest_price})가 숏 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
+                            self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=short_contracts, params={'positionSide': 'SHORT'})
+                        except Exception as e:
+                            print(f"⚠️ 숏 시장가 익절 실패: {e}")
 
             orders = decision.get('orders') or []
             if not orders:
                 print("No new orders to execute.")
                 return
 
-            # ==========================================
-            # 🛡️ [핵심 수정] 새 주문(미체결)을 처리하기 전에 최신 계좌 상태로 새로고침!
-            # (위쪽 시장가 청산 로직으로 인해 계좌 상태가 변했을 수 있기 때문)
-            # ==========================================
-            if not DRY_RUN:
-                fresh_state = self.get_account_state()
-                if fresh_state:
-                    account_state = fresh_state
+            # 새 주문 처리 전 최신 계좌 상태 갱신
+            fresh_state = self.get_account_state()
+            if fresh_state:
+                account_state = fresh_state
                     
-            # 현재 누적 포지션 크기 추적용 변수 (다중 주문 시 초과 방지)
             tracked_long = account_state['long_position']['notional']
             tracked_short = account_state['short_position']['notional']
 
             for order in orders:
-                side = order.get('side', '').lower() # 소문자로 변환하여 일치 보장
+                side = order.get('side', '').lower() 
                 pos_side = order.get('positionSide', '').upper()
                 
                 if not side or not pos_side: continue
@@ -279,16 +273,14 @@ Based on this, what are your next orders?
 
                 if amount_usdt <= 0 or price <= 0: continue
                 
-                # ==========================================
-                # 🛡️ [핵심 수정] 진입(Entry) 주문일 때만 추적 변수에 누적하여 계산!
-                # ==========================================
+                # 진입(Entry) 주문일 때 추적 변수에 누적하여 한도 검사
                 if pos_side == 'LONG' and side == 'buy':
                     if tracked_long + amount_usdt > MAX_LONG_SIZE_USDT:
                         amount_usdt = MAX_LONG_SIZE_USDT - tracked_long
-                        if amount_usdt < 5.0: # 5달러 이하 먼지 주문 커트
+                        if amount_usdt < 5.0:
                             print(f"⚠️ 롱 포지션 최대 한도({MAX_LONG_SIZE_USDT} USDT)에 도달했습니다. 추가 진입을 강제 차단합니다.")
                             continue
-                    tracked_long += amount_usdt # 체결될 것이라 가정하고 누적
+                    tracked_long += amount_usdt 
                     
                 elif pos_side == 'SHORT' and side == 'sell':
                     if tracked_short + amount_usdt > tracked_long:
@@ -296,8 +288,7 @@ Based on this, what are your next orders?
                         if amount_usdt < 5.0:
                             print(f"⚠️ 숏 포지션이 롱 포지션 크기를 초과하려 합니다! 진입을 강제 차단합니다.")
                             continue
-                    tracked_short += amount_usdt # 체결될 것이라 가정하고 누적
-                # ==========================================
+                    tracked_short += amount_usdt 
 
                 amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
                 amount_coin = float(amount_coin_str)
@@ -308,18 +299,15 @@ Based on this, what are your next orders?
                 price_str = self.exchange.price_to_precision(SYMBOL, price)
                 print(f"Action: {side.upper()} {amount_coin} {SYMBOL} at {price_str} mapping to {pos_side}")
                 
-                if not DRY_RUN:
-                    try:
-                        entry_val = self.exchange.create_order(
-                            symbol=SYMBOL, type='limit', side=side,
-                            amount=amount_coin, price=float(price_str), params={'positionSide': pos_side}
-                        )
-                        print(f"✅ 진입(Limit) 주문 전송 완료: {entry_val['id']}")
-                        print(f"⏳ (해당 주문의 익절(TP)은 주문 체결 이후 다음 루프에서 AI가 자동 설정합니다.)")
-                    except Exception as e:
-                        print(f"⚠️ 진입 주문 전송 에러 (다음 루프에서 재시도합니다): {e}")
-                else:
-                    print(f"[DRY RUN] Limit Entry: {side.upper()} {amount_coin} at {price_str} ({pos_side})")
+                try:
+                    entry_val = self.exchange.create_order(
+                        symbol=SYMBOL, type='limit', side=side,
+                        amount=amount_coin, price=float(price_str), params={'positionSide': pos_side}
+                    )
+                    print(f"✅ 진입(Limit) 주문 전송 완료: {entry_val['id']}")
+                    print(f"⏳ (해당 주문의 익절(TP)은 주문 체결 이후 다음 루프에서 AI가 자동 설정합니다.)")
+                except Exception as e:
+                    print(f"⚠️ 진입 주문 전송 에러 (다음 루프에서 재시도합니다): {e}")
 
         except Exception as e:
             print(f"Unexpected error in execute_orders: {e}")
@@ -332,22 +320,19 @@ Based on this, what are your next orders?
             print(f"🚨 Constraint Violation: Short({short_notional}) exceeds Long({long_notional}).")
             excess_short_notional = short_notional - long_notional
             
-            if not DRY_RUN:
-                try:
-                    ticker = self.exchange.fetch_ticker(SYMBOL)
-                    current_price = ticker['last']
-                    amount_coin_to_reduce = float(self.exchange.amount_to_precision(SYMBOL, excess_short_notional / current_price))
-                    
-                    if amount_coin_to_reduce > 0:
-                        reduce_val = self.exchange.create_order(
-                            symbol=SYMBOL, type='market', side='buy',
-                            amount=amount_coin_to_reduce, params={'positionSide': 'SHORT'}
-                        )
-                        print(f"✅ 숏 포지션 강제 축소 완료: {reduce_val['id']}")
-                except Exception as e:
-                    print(f"Error reducing short position: {e}")
-            else:
-                print(f"[DRY RUN] Would MARKET BUY to reduce SHORT by {excess_short_notional} USDT.")
+            try:
+                ticker = self.exchange.fetch_ticker(SYMBOL)
+                current_price = ticker['last']
+                amount_coin_to_reduce = float(self.exchange.amount_to_precision(SYMBOL, excess_short_notional / current_price))
+                
+                if amount_coin_to_reduce > 0:
+                    reduce_val = self.exchange.create_order(
+                        symbol=SYMBOL, type='market', side='buy',
+                        amount=amount_coin_to_reduce, params={'positionSide': 'SHORT'}
+                    )
+                    print(f"✅ 숏 포지션 강제 축소 완료: {reduce_val['id']}")
+            except Exception as e:
+                print(f"Error reducing short position: {e}")
 
     def run(self):
         print("🚀 AutoTrader Bot initialized. Starting main loop.")
@@ -364,7 +349,8 @@ Based on this, what are your next orders?
                     time.sleep(60); continue
                 
                 self.check_short_position_constraint(account_state)
-                if not DRY_RUN: account_state = self.get_account_state()
+                # 숏 축소가 일어났을 수 있으므로 최신 상태 다시 로드
+                account_state = self.get_account_state()
                 
                 signal = self.get_gemini_signal(df, account_state)
                 self.execute_orders(signal, account_state)
