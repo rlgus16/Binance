@@ -127,7 +127,7 @@ RULES AND CONSTRAINTS:
 7. Do NOT hedge if free balance is abundant. Focus on maximizing profit.
 8. Opens LONG and SHORT positions to maximize profit according to technical analysis.
 9. Exits MUST rely on take_profit orders hitting their targets.
-10. Predict and provide limit_order entry prices and take_profit prices.
+10. Predict and provide limit_order entry prices.
 11. Instead of HOLDING, place take_profit_orders to maximize profit.
 12. If you are holding an existing LONG or SHORT position, you MUST provide a take profit price for it in the 'existing_position_tp' field.
 
@@ -146,8 +146,7 @@ Format:
             "positionSide": "LONG",
             "type": "limit",
             "amount_usdt": <amount in USDT>,
-            "price": <entry price limit>,
-            "take_profit_price": <take profit target limit>
+            "price": <entry price limit>
         }}
     ]
 }}
@@ -190,7 +189,7 @@ Based on this, what are your next orders?
                 print("Canceling all open orders as instructed by AI...")
                 if not DRY_RUN: 
                     self.exchange.cancel_all_orders(SYMBOL)
-                    time.sleep(1) # API 동기화 대기
+                    time.sleep(1) 
                     
                     positions = self.exchange.fetch_positions([SYMBOL])
                     long_pos = next((p for p in positions if p.get('side') == 'long'), None)
@@ -200,8 +199,10 @@ Based on this, what are your next orders?
                     short_contracts = float(short_pos.get('contracts', 0)) if short_pos else 0.0
                     
                     existing_tp = decision.get('existing_position_tp') or {}
-                    l_tp = float(existing_tp.get('LONG', 0))
-                    s_tp = float(existing_tp.get('SHORT', 0))
+                    
+                    # [핵심 수정 1] AI가 null을 반환해도 에러가 나지 않도록 안전하게 파싱 (or 0 추가)
+                    l_tp = float(existing_tp.get('LONG') or 0)
+                    s_tp = float(existing_tp.get('SHORT') or 0)
                     latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
                     
                     if long_contracts > 0 and l_tp > 0:
@@ -210,7 +211,6 @@ Based on this, what are your next orders?
                             self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=None, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str), 'closePosition': True})
                             print(f"🛡️ 기존 롱 포지션 익절(TP) 복구 완료: {tp_str}")
                         else:
-                            # [핵심 수정 1] 시장가 즉시 청산 시 closePosition 옵션을 빼고, 정확한 수량(long_contracts)을 넣어 해결
                             print(f"🚨 현재가({latest_price})가 롱 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
                             self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=long_contracts, params={'positionSide': 'LONG'})
                     
@@ -220,7 +220,6 @@ Based on this, what are your next orders?
                             self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=None, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
                             print(f"🛡️ 기존 숏 포지션 익절(TP) 복구 완료: {tp_str}")
                         else:
-                            # [핵심 수정 2] 시장가 즉시 청산 시 closePosition 옵션을 빼고, 정확한 수량(short_contracts)을 넣어 해결
                             print(f"🚨 현재가({latest_price})가 숏 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
                             self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=short_contracts, params={'positionSide': 'SHORT'})
 
@@ -232,9 +231,11 @@ Based on this, what are your next orders?
             for order in orders:
                 side = order.get('side') 
                 pos_side = order.get('positionSide') 
-                amount_usdt = float(order.get('amount_usdt', 0))
-                price = float(order.get('price', 0))
-                tp_price = float(order.get('take_profit_price', 0))
+                
+                # [핵심 수정 1] 마찬가지로 null 방어
+                if not side or not pos_side: continue
+                amount_usdt = float(order.get('amount_usdt') or 0)
+                price = float(order.get('price') or 0)
 
                 if amount_usdt <= 0 or price <= 0: continue
                 
@@ -249,29 +250,18 @@ Based on this, what are your next orders?
                 
                 if not DRY_RUN:
                     try:
+                        # [핵심 수정 2] 동시 TP 주문 전송 삭제 (증발 버그 방지)
                         entry_val = self.exchange.create_order(
                             symbol=SYMBOL, type='limit', side=side,
                             amount=amount_coin, price=float(price_str), params={'positionSide': pos_side}
                         )
-                        print(f"✅ 진입 주문 접수 완료: {entry_val['id']}")
-                        
-                        if tp_price > 0:
-                            tp_price_str = self.exchange.price_to_precision(SYMBOL, tp_price)
-                            tp_side = 'sell' if side == 'buy' else 'buy'
-                            tp_val = self.exchange.create_order(
-                                symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side=tp_side,
-                                amount=amount_coin, price=None,
-                                params={'positionSide': pos_side, 'stopPrice': float(tp_price_str)} 
-                            )
-                            print(f"🎯 익절(TP) 예약 주문 동시 접수 완료: {tp_val['id']}")
+                        print(f"✅ 진입(Limit) 주문 전송 완료: {entry_val['id']}")
+                        print(f"⏳ (해당 주문의 익절(TP)은 주문 체결 이후 다음 30분 사이클에서 AI가 'existing_position_tp'로 자동 설정합니다.)")
                             
                     except Exception as e:
                         print(f"Error executing trade: {e}")
                 else:
                     print(f"[DRY RUN] Limit Entry: {side.upper()} {amount_coin} at {price_str} ({pos_side})")
-                    if tp_price > 0:
-                        tp_side = 'sell' if side == 'buy' else 'buy'
-                        print(f"[DRY RUN] Would place TP {tp_side.upper()} Trigger at {tp_price} ({pos_side})")
 
         except Exception as e:
             print(f"Unexpected error in execute_orders: {e}")
