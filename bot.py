@@ -16,7 +16,7 @@ TIMEFRAME = '4h'
 LEVERAGE = 5
 MAX_LONG_SIZE_USDT = 2000
 LOOP_INTERVAL_MINUTES = 30
-DRY_RUN = False  # Set to False to enable actual trading
+DRY_RUN = False  # 실전 가동 (False)
 
 class AutoTrader:
     def __init__(self):
@@ -30,7 +30,6 @@ class AutoTrader:
             raise ValueError("Missing Gemini API key in .env")
 
         print("Initializing Binance USDS-M Futures...")
-        # 최신 CCXT 표준 객체 초기화 (헤지 모드 명시)
         self.exchange = ccxt.binance({
             'apiKey': binance_api_key,
             'secret': binance_secret_key,
@@ -56,7 +55,7 @@ class AutoTrader:
             print(f"Setting margin mode to CROSS for {SYMBOL}...")
             self.exchange.set_margin_mode('cross', SYMBOL)
         except Exception as e:
-            print(f"Setup info/warning (Usually means it's already set): {e}")
+            print(f"Setup info/warning: {e}")
 
     def fetch_data(self):
         print(f"Fetching {TIMEFRAME} candles for {SYMBOL}...")
@@ -89,7 +88,6 @@ class AutoTrader:
             
             open_orders = self.exchange.fetch_open_orders(SYMBOL)
             
-            # KeyError를 막기 위한 안전한 딕셔너리 참조 (get 메서드 사용)
             return {
                 'usdt_free': usdt_free,
                 'usdt_total': usdt_total,
@@ -116,6 +114,7 @@ class AutoTrader:
         print("Analyzing data with Gemini 3.1 Pro...")
         recent_data = df.tail(10).to_dict(orient='records')
         
+        # [수정 포인트] AI에게 기존 포지션의 TP 가격을 의무적으로 요구합니다!
         system_instruction = f"""You are an advanced quantitative trading AI for Binance USD-M Futures.
 You are trading {SYMBOL} on {TIMEFRAME} candles.
 
@@ -131,11 +130,17 @@ RULES AND CONSTRAINTS:
 9. Exits MUST rely on take_profit orders hitting their targets.
 10. Predict and provide limit_order entry prices and take_profit prices.
 11. Instead of HOLDING, place take_profit_orders to maximize profit.
+12. If you are holding an existing LONG or SHORT position, you MUST provide a take profit price for it in the 'existing_position_tp' field.
 
 Respond ONLY with a valid JSON format (without markdown code blocks) representing your trading decision.
 Format:
 {{
     "reasoning": "Explain your analysis...",
+    "cancel_all_open_orders": true/false,
+    "existing_position_tp": {{
+        "LONG": <take profit limit for existing LONG position, or 0 if none>,
+        "SHORT": <take profit limit for existing SHORT position, or 0 if none>
+    }},
     "orders": [
         {{
             "side": "buy",
@@ -145,8 +150,7 @@ Format:
             "price": <entry price limit>,
             "take_profit_price": <take profit target limit>
         }}
-    ],
-    "cancel_all_open_orders": true/false
+    ]
 }}
 """
         prompt = f"""
@@ -162,7 +166,6 @@ Last prices from 4H Candles:
 Based on this, what are your next orders?
 """
         try:
-            # 올바른 모델 이름 사용 (preview)
             response = self.client.models.generate_content(
                 model='gemini-3.1-pro-preview',
                 contents=prompt,
@@ -186,7 +189,40 @@ Based on this, what are your next orders?
 
             if decision.get('cancel_all_open_orders'):
                 print("Canceling all open orders as instructed by AI...")
-                if not DRY_RUN: self.exchange.cancel_all_orders(SYMBOL)
+                if not DRY_RUN: 
+                    self.exchange.cancel_all_orders(SYMBOL)
+                    time.sleep(1) # API 동기화 대기
+                    
+                    # [수정 포인트] 취소 직후, AI가 제시한 가격으로 기존 포지션 방패(TP) 100% 자동 복구!
+                    positions = self.exchange.fetch_positions([SYMBOL])
+                    long_pos = next((p for p in positions if p.get('side') == 'long'), None)
+                    short_pos = next((p for p in positions if p.get('side') == 'short'), None)
+                    
+                    long_contracts = float(long_pos['contracts']) if long_pos else 0.0
+                    short_contracts = float(short_pos['contracts']) if short_pos else 0.0
+                    
+                    existing_tp = decision.get('existing_position_tp', {})
+                    l_tp = float(existing_tp.get('LONG', 0))
+                    s_tp = float(existing_tp.get('SHORT', 0))
+                    latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
+                    
+                    if long_contracts > 0 and l_tp > 0:
+                        tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
+                        if l_tp > latest_price:
+                            self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=long_contracts, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str), 'closePosition': True})
+                            print(f"🛡️ 기존 롱 포지션 익절(TP) 복구 완료: {tp_str}")
+                        else:
+                            print(f"🚨 현재가({latest_price})가 롱 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
+                            self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=long_contracts, params={'positionSide': 'LONG', 'closePosition': True})
+                    
+                    if short_contracts > 0 and s_tp > 0:
+                        tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
+                        if s_tp < latest_price:
+                            self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=short_contracts, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
+                            print(f"🛡️ 기존 숏 포지션 익절(TP) 복구 완료: {tp_str}")
+                        else:
+                            print(f"🚨 현재가({latest_price})가 숏 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
+                            self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=short_contracts, params={'positionSide': 'SHORT', 'closePosition': True})
 
             orders = decision.get('orders', [])
             if not orders:
@@ -202,36 +238,43 @@ Based on this, what are your next orders?
 
                 if amount_usdt <= 0 or price <= 0: continue
                 
-                amount_coin = float(self.exchange.amount_to_precision(SYMBOL, amount_usdt / price))
+                # [수정 포인트] 수량 및 가격 소수점 포맷팅
+                amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
+                amount_coin = float(amount_coin_str)
+                if amount_coin <= 0:
+                    print(f"⚠️ 주문 수량이 거래소 최소 단위보다 작습니다. (USDT: {amount_usdt})")
+                    continue
                 
-                print(f"Action: {side.upper()} {amount_coin} {SYMBOL} at {price} mapping to {pos_side}")
+                price_str = self.exchange.price_to_precision(SYMBOL, price)
+                print(f"Action: {side.upper()} {amount_coin} {SYMBOL} at {price_str} mapping to {pos_side}")
                 
                 if not DRY_RUN:
                     try:
                         # 1. 진입(Entry) 주문 즉시 전송
                         entry_val = self.exchange.create_order(
                             symbol=SYMBOL, type='limit', side=side,
-                            amount=amount_coin, price=price, params={'positionSide': pos_side}
+                            amount=amount_coin, price=float(price_str), params={'positionSide': pos_side}
                         )
                         print(f"✅ 진입 주문 접수 완료: {entry_val['id']}")
                         
-                        # 2. 익절(TP) 주문 대기 없이 즉시 전송
+                        # 2. 익절(TP) 주문 동시 예약 전송 (TAKE_PROFIT_MARKET 활용)
                         if tp_price > 0:
+                            tp_price_str = self.exchange.price_to_precision(SYMBOL, tp_price)
                             tp_side = 'sell' if side == 'buy' else 'buy'
                             tp_val = self.exchange.create_order(
-                                symbol=SYMBOL, type='limit', side=tp_side,
-                                amount=amount_coin, price=tp_price,
-                                params={'positionSide': pos_side} 
+                                symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side=tp_side,
+                                amount=amount_coin, price=None,
+                                params={'positionSide': pos_side, 'stopPrice': float(tp_price_str)} 
                             )
-                            print(f"🎯 익절(TP) 주문 동시 접수 완료: {tp_val['id']}")
+                            print(f"🎯 익절(TP) 예약 주문 동시 접수 완료: {tp_val['id']}")
                             
                     except Exception as e:
                         print(f"Error executing trade: {e}")
                 else:
-                    print(f"[DRY RUN] Limit Entry: {side.upper()} {amount_coin} at {price} ({pos_side})")
+                    print(f"[DRY RUN] Limit Entry: {side.upper()} {amount_coin} at {price_str} ({pos_side})")
                     if tp_price > 0:
                         tp_side = 'sell' if side == 'buy' else 'buy'
-                        print(f"[DRY RUN] Would place TP {tp_side.upper()} limit for {amount_coin} coins at {tp_price} ({pos_side})")
+                        print(f"[DRY RUN] Would place TP {tp_side.upper()} Trigger at {tp_price} ({pos_side})")
 
         except Exception as e:
             print(f"Unexpected error in execute_orders: {e}")
