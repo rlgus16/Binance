@@ -114,7 +114,6 @@ class AutoTrader:
         print("Analyzing data with Gemini 3.1 Pro...")
         recent_data = df.tail(10).to_dict(orient='records')
         
-        # [수정 포인트] AI에게 기존 포지션의 TP 가격을 의무적으로 요구합니다!
         system_instruction = f"""You are an advanced quantitative trading AI for Binance USD-M Futures.
 You are trading {SYMBOL} on {TIMEFRAME} candles.
 
@@ -193,15 +192,16 @@ Based on this, what are your next orders?
                     self.exchange.cancel_all_orders(SYMBOL)
                     time.sleep(1) # API 동기화 대기
                     
-                    # [수정 포인트] 취소 직후, AI가 제시한 가격으로 기존 포지션 방패(TP) 100% 자동 복구!
                     positions = self.exchange.fetch_positions([SYMBOL])
                     long_pos = next((p for p in positions if p.get('side') == 'long'), None)
                     short_pos = next((p for p in positions if p.get('side') == 'short'), None)
                     
-                    long_contracts = float(long_pos['contracts']) if long_pos else 0.0
-                    short_contracts = float(short_pos['contracts']) if short_pos else 0.0
+                    # 수량 가져올 때 안전장치 추가
+                    long_contracts = float(long_pos.get('contracts', 0)) if long_pos else 0.0
+                    short_contracts = float(short_pos.get('contracts', 0)) if short_pos else 0.0
                     
-                    existing_tp = decision.get('existing_position_tp', {})
+                    # [수정 2] AI가 null을 반환할 때를 대비한 안전한 딕셔너리 추출
+                    existing_tp = decision.get('existing_position_tp') or {}
                     l_tp = float(existing_tp.get('LONG', 0))
                     s_tp = float(existing_tp.get('SHORT', 0))
                     latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
@@ -209,22 +209,24 @@ Based on this, what are your next orders?
                     if long_contracts > 0 and l_tp > 0:
                         tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
                         if l_tp > latest_price:
-                            self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=long_contracts, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str), 'closePosition': True})
+                            # [수정 1] closePosition: True 일 때는 수량(amount)을 무조건 None으로!
+                            self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=None, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str), 'closePosition': True})
                             print(f"🛡️ 기존 롱 포지션 익절(TP) 복구 완료: {tp_str}")
                         else:
                             print(f"🚨 현재가({latest_price})가 롱 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
-                            self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=long_contracts, params={'positionSide': 'LONG', 'closePosition': True})
+                            self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=None, params={'positionSide': 'LONG', 'closePosition': True})
                     
                     if short_contracts > 0 and s_tp > 0:
                         tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
                         if s_tp < latest_price:
-                            self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=short_contracts, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
+                            # [수정 1] 마찬가지로 amount=None
+                            self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=None, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
                             print(f"🛡️ 기존 숏 포지션 익절(TP) 복구 완료: {tp_str}")
                         else:
                             print(f"🚨 현재가({latest_price})가 숏 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
-                            self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=short_contracts, params={'positionSide': 'SHORT', 'closePosition': True})
+                            self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=None, params={'positionSide': 'SHORT', 'closePosition': True})
 
-            orders = decision.get('orders', [])
+            orders = decision.get('orders') or []
             if not orders:
                 print("No new orders to execute.")
                 return
@@ -238,7 +240,6 @@ Based on this, what are your next orders?
 
                 if amount_usdt <= 0 or price <= 0: continue
                 
-                # [수정 포인트] 수량 및 가격 소수점 포맷팅
                 amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
                 amount_coin = float(amount_coin_str)
                 if amount_coin <= 0:
@@ -250,14 +251,12 @@ Based on this, what are your next orders?
                 
                 if not DRY_RUN:
                     try:
-                        # 1. 진입(Entry) 주문 즉시 전송
                         entry_val = self.exchange.create_order(
                             symbol=SYMBOL, type='limit', side=side,
                             amount=amount_coin, price=float(price_str), params={'positionSide': pos_side}
                         )
                         print(f"✅ 진입 주문 접수 완료: {entry_val['id']}")
                         
-                        # 2. 익절(TP) 주문 동시 예약 전송 (TAKE_PROFIT_MARKET 활용)
                         if tp_price > 0:
                             tp_price_str = self.exchange.price_to_precision(SYMBOL, tp_price)
                             tp_side = 'sell' if side == 'buy' else 'buy'
