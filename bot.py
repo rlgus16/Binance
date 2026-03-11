@@ -273,7 +273,6 @@ Based on this, what are your next orders?
 
                 if amount_usdt <= 0 or price <= 0: continue
                 
-                # 진입(Entry) 주문일 때 추적 변수에 누적하여 한도 검사
                 if pos_side == 'LONG' and side == 'buy':
                     if tracked_long + amount_usdt > MAX_LONG_SIZE_USDT:
                         amount_usdt = MAX_LONG_SIZE_USDT - tracked_long
@@ -349,8 +348,15 @@ Based on this, what are your next orders?
                     time.sleep(60); continue
                 
                 self.check_short_position_constraint(account_state)
-                # 숏 축소가 일어났을 수 있으므로 최신 상태 다시 로드
-                account_state = self.get_account_state()
+                
+                # ==========================================
+                # 🛡️ [핵심 수정] 통신 에러로 None이 반환되어도 기존 상태 유지 (안전 보장)
+                # ==========================================
+                fresh_state = self.get_account_state()
+                if fresh_state:
+                    account_state = fresh_state
+                else:
+                    print("⚠️ 계좌 상태 갱신 실패. 기존 상태 데이터를 유지하고 분석을 진행합니다.")
                 
                 signal = self.get_gemini_signal(df, account_state)
                 self.execute_orders(signal, account_state)
