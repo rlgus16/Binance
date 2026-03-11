@@ -341,8 +341,8 @@ Based on this, what are your next orders?
             # ==========================================
             except Exception as e:
                 print(f"🚨 Error in main loop: {e}")
-                print("⏳ 안전을 위해 10분(600초) 대기 후 재시도합니다...")
-                time.sleep(600)
+                print("⏳ 안전을 위해 5분 대기 후 재시도합니다...")
+                time.sleep(300)
 
 if __name__ == "__main__":
     try:
