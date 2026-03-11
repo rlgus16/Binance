@@ -196,11 +196,9 @@ Based on this, what are your next orders?
                     long_pos = next((p for p in positions if p.get('side') == 'long'), None)
                     short_pos = next((p for p in positions if p.get('side') == 'short'), None)
                     
-                    # 수량 가져올 때 안전장치 추가
                     long_contracts = float(long_pos.get('contracts', 0)) if long_pos else 0.0
                     short_contracts = float(short_pos.get('contracts', 0)) if short_pos else 0.0
                     
-                    # [수정 2] AI가 null을 반환할 때를 대비한 안전한 딕셔너리 추출
                     existing_tp = decision.get('existing_position_tp') or {}
                     l_tp = float(existing_tp.get('LONG', 0))
                     s_tp = float(existing_tp.get('SHORT', 0))
@@ -209,22 +207,22 @@ Based on this, what are your next orders?
                     if long_contracts > 0 and l_tp > 0:
                         tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
                         if l_tp > latest_price:
-                            # [수정 1] closePosition: True 일 때는 수량(amount)을 무조건 None으로!
                             self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=None, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str), 'closePosition': True})
                             print(f"🛡️ 기존 롱 포지션 익절(TP) 복구 완료: {tp_str}")
                         else:
+                            # [핵심 수정 1] 시장가 즉시 청산 시 closePosition 옵션을 빼고, 정확한 수량(long_contracts)을 넣어 해결
                             print(f"🚨 현재가({latest_price})가 롱 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
-                            self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=None, params={'positionSide': 'LONG', 'closePosition': True})
+                            self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=long_contracts, params={'positionSide': 'LONG'})
                     
                     if short_contracts > 0 and s_tp > 0:
                         tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
                         if s_tp < latest_price:
-                            # [수정 1] 마찬가지로 amount=None
                             self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=None, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
                             print(f"🛡️ 기존 숏 포지션 익절(TP) 복구 완료: {tp_str}")
                         else:
+                            # [핵심 수정 2] 시장가 즉시 청산 시 closePosition 옵션을 빼고, 정확한 수량(short_contracts)을 넣어 해결
                             print(f"🚨 현재가({latest_price})가 숏 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
-                            self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=None, params={'positionSide': 'SHORT', 'closePosition': True})
+                            self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=short_contracts, params={'positionSide': 'SHORT'})
 
             orders = decision.get('orders') or []
             if not orders:
