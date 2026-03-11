@@ -88,16 +88,22 @@ class AutoTrader:
             
             open_orders = self.exchange.fetch_open_orders(SYMBOL)
             
+            # ==========================================
+            # 🛡️ [핵심 수정 1] 바이낸스 short 음수 notional 버그 완벽 차단
+            # ==========================================
+            long_notional = float(long_pos.get('contracts', 0)) * float(long_pos.get('entryPrice', 0)) if long_pos else 0.0
+            short_notional = float(short_pos.get('contracts', 0)) * float(short_pos.get('entryPrice', 0)) if short_pos else 0.0
+            
             return {
                 'usdt_free': usdt_free,
                 'usdt_total': usdt_total,
                 'long_position': {
-                    'notional': float(long_pos['info'].get('notional', 0)) if long_pos else 0.0,
+                    'notional': long_notional,
                     'entryPrice': float(long_pos.get('entryPrice', 0)) if long_pos else 0.0,
                     'unrealizedPnl': float(long_pos.get('unrealizedPnl', 0)) if long_pos else 0.0,
                 },
                 'short_position': {
-                    'notional': float(short_pos['info'].get('notional', 0)) if short_pos else 0.0,
+                    'notional': short_notional,
                     'entryPrice': float(short_pos.get('entryPrice', 0)) if short_pos else 0.0,
                     'unrealizedPnl': float(short_pos.get('unrealizedPnl', 0)) if short_pos else 0.0,
                 },
@@ -177,7 +183,7 @@ Based on this, what are your next orders?
             print(f"Error calling Gemini: {e}")
             return None
 
-    def execute_orders(self, signal_text):
+    def execute_orders(self, signal_text, account_state):
         if not signal_text: return
 
         try:
@@ -263,6 +269,26 @@ Based on this, what are your next orders?
 
                 if amount_usdt <= 0 or price <= 0: continue
                 
+                # ==========================================
+                # 🛡️ [핵심 수정 2] AI 환각 대비 파이썬 하드 리밋(물리적 차단) 부활
+                # ==========================================
+                if pos_side == 'LONG':
+                    current_long = account_state['long_position']['notional']
+                    if current_long + amount_usdt > MAX_LONG_SIZE_USDT:
+                        amount_usdt = MAX_LONG_SIZE_USDT - current_long
+                        if amount_usdt < 5.0: # 바이낸스 5달러 최소주문금액 룰
+                            print(f"⚠️ 롱 포지션 최대 한도({MAX_LONG_SIZE_USDT} USDT)에 도달했습니다. 추가 진입을 강제 차단합니다.")
+                            continue
+                elif pos_side == 'SHORT':
+                    current_long = account_state['long_position']['notional']
+                    current_short = account_state['short_position']['notional']
+                    if current_short + amount_usdt > current_long:
+                        amount_usdt = current_long - current_short
+                        if amount_usdt < 5.0:
+                            print(f"⚠️ 숏 포지션({current_short}$)이 롱 포지션({current_long}$)을 초과하려 합니다! 진입을 차단합니다.")
+                            continue
+                # ==========================================
+
                 amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
                 amount_coin = float(amount_coin_str)
                 if amount_coin <= 0:
@@ -279,7 +305,7 @@ Based on this, what are your next orders?
                             amount=amount_coin, price=float(price_str), params={'positionSide': pos_side}
                         )
                         print(f"✅ 진입(Limit) 주문 전송 완료: {entry_val['id']}")
-                        print(f"⏳ (해당 주문의 익절(TP)은 주문 체결 이후 다음 30분 사이클에서 AI가 'existing_position_tp'로 자동 설정합니다.)")
+                        print(f"⏳ (해당 주문의 익절(TP)은 주문 체결 이후 다음 루프에서 AI가 자동 설정합니다.)")
                     except Exception as e:
                         print(f"⚠️ 진입 주문 전송 에러 (다음 루프에서 재시도합니다): {e}")
                 else:
@@ -331,14 +357,12 @@ Based on this, what are your next orders?
                 if not DRY_RUN: account_state = self.get_account_state()
                 
                 signal = self.get_gemini_signal(df, account_state)
-                self.execute_orders(signal)
+                # account_state도 같이 넘겨주도록 수정했습니다!
+                self.execute_orders(signal, account_state)
                 
                 print(f"💤 Sleeping for {LOOP_INTERVAL_MINUTES} minutes...")
                 time.sleep(LOOP_INTERVAL_MINUTES * 60)
                 
-            # ==========================================
-            # 🛡️ [핵심 수정] 에러 발생 시 10분(600초) 대기 로직 적용!
-            # ==========================================
             except Exception as e:
                 print(f"🚨 Error in main loop: {e}")
                 print("⏳ 안전을 위해 5분 대기 후 재시도합니다...")
