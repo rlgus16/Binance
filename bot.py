@@ -88,9 +88,6 @@ class AutoTrader:
             
             open_orders = self.exchange.fetch_open_orders(SYMBOL)
             
-            # ==========================================
-            # 🛡️ [핵심 수정 1] 바이낸스 short 음수 notional 버그 완벽 차단
-            # ==========================================
             long_notional = float(long_pos.get('contracts', 0)) * float(long_pos.get('entryPrice', 0)) if long_pos else 0.0
             short_notional = float(short_pos.get('contracts', 0)) * float(short_pos.get('entryPrice', 0)) if short_pos else 0.0
             
@@ -259,9 +256,22 @@ Based on this, what are your next orders?
                 print("No new orders to execute.")
                 return
 
+            # ==========================================
+            # 🛡️ [핵심 수정] 새 주문(미체결)을 처리하기 전에 최신 계좌 상태로 새로고침!
+            # (위쪽 시장가 청산 로직으로 인해 계좌 상태가 변했을 수 있기 때문)
+            # ==========================================
+            if not DRY_RUN:
+                fresh_state = self.get_account_state()
+                if fresh_state:
+                    account_state = fresh_state
+                    
+            # 현재 누적 포지션 크기 추적용 변수 (다중 주문 시 초과 방지)
+            tracked_long = account_state['long_position']['notional']
+            tracked_short = account_state['short_position']['notional']
+
             for order in orders:
-                side = order.get('side') 
-                pos_side = order.get('positionSide') 
+                side = order.get('side', '').lower() # 소문자로 변환하여 일치 보장
+                pos_side = order.get('positionSide', '').upper()
                 
                 if not side or not pos_side: continue
                 amount_usdt = float(order.get('amount_usdt') or 0)
@@ -270,23 +280,23 @@ Based on this, what are your next orders?
                 if amount_usdt <= 0 or price <= 0: continue
                 
                 # ==========================================
-                # 🛡️ [핵심 수정 2] AI 환각 대비 파이썬 하드 리밋(물리적 차단) 부활
+                # 🛡️ [핵심 수정] 진입(Entry) 주문일 때만 추적 변수에 누적하여 계산!
                 # ==========================================
-                if pos_side == 'LONG':
-                    current_long = account_state['long_position']['notional']
-                    if current_long + amount_usdt > MAX_LONG_SIZE_USDT:
-                        amount_usdt = MAX_LONG_SIZE_USDT - current_long
-                        if amount_usdt < 5.0: # 바이낸스 5달러 최소주문금액 룰
+                if pos_side == 'LONG' and side == 'buy':
+                    if tracked_long + amount_usdt > MAX_LONG_SIZE_USDT:
+                        amount_usdt = MAX_LONG_SIZE_USDT - tracked_long
+                        if amount_usdt < 5.0: # 5달러 이하 먼지 주문 커트
                             print(f"⚠️ 롱 포지션 최대 한도({MAX_LONG_SIZE_USDT} USDT)에 도달했습니다. 추가 진입을 강제 차단합니다.")
                             continue
-                elif pos_side == 'SHORT':
-                    current_long = account_state['long_position']['notional']
-                    current_short = account_state['short_position']['notional']
-                    if current_short + amount_usdt > current_long:
-                        amount_usdt = current_long - current_short
+                    tracked_long += amount_usdt # 체결될 것이라 가정하고 누적
+                    
+                elif pos_side == 'SHORT' and side == 'sell':
+                    if tracked_short + amount_usdt > tracked_long:
+                        amount_usdt = tracked_long - tracked_short
                         if amount_usdt < 5.0:
-                            print(f"⚠️ 숏 포지션({current_short}$)이 롱 포지션({current_long}$)을 초과하려 합니다! 진입을 차단합니다.")
+                            print(f"⚠️ 숏 포지션이 롱 포지션 크기를 초과하려 합니다! 진입을 강제 차단합니다.")
                             continue
+                    tracked_short += amount_usdt # 체결될 것이라 가정하고 누적
                 # ==========================================
 
                 amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
@@ -357,7 +367,6 @@ Based on this, what are your next orders?
                 if not DRY_RUN: account_state = self.get_account_state()
                 
                 signal = self.get_gemini_signal(df, account_state)
-                # account_state도 같이 넘겨주도록 수정했습니다!
                 self.execute_orders(signal, account_state)
                 
                 print(f"💤 Sleeping for {LOOP_INTERVAL_MINUTES} minutes...")
