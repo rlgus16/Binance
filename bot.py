@@ -192,13 +192,7 @@ Based on this, what are your next orders?
             # ==========================================
             pending_short_amount_coin = 0.0
             
-            # 1. 취소하지 않고 유지하는 기존 숏 대기 주문 수량 합산
-            if not decision.get('cancel_all_open_orders'):
-                for o in account_state.get('open_orders', []):
-                    if o.get('positionSide') == 'SHORT' and o.get('side') == 'sell':
-                        pending_short_amount_coin += float(o.get('amount', 0))
-            
-            # 2. 이번 턴에 AI가 새롭게 진입하려는 신규 숏 대기 주문 수량 합산
+            # 이번 턴에 AI가 새롭게 진입하려는 신규 숏 대기 주문 수량 합산
             new_orders = decision.get('orders') or []
             for order in new_orders:
                 if order.get('positionSide', '').upper() == 'SHORT' and order.get('side', '').lower() == 'sell':
@@ -247,13 +241,6 @@ Based on this, what are your next orders?
 
                 if long_contracts > 0 and l_tp > 0:
                     # 새로운 TP를 걸기 전에 기존 롱 매도(TP) 주문을 찾아 모조리 취소합니다.
-                    for o in account_state.get('open_orders', []):
-                        if o.get('positionSide') == 'LONG' and o.get('side') == 'sell':
-                            try:
-                                self.exchange.cancel_order(o['id'], SYMBOL)
-                                print(f"🔄 롱 익절가 갱신을 위해 기존 주문({o['id']})을 취소했습니다.")
-                            except:
-                                pass # 취소 실패해도 그냥 넘어감
 
                     if amount_to_close_long_clean > 0:
                         tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
@@ -278,15 +265,6 @@ Based on this, what are your next orders?
                 # 🛡️ 숏 100% 전량 익절
                 # ==========================================
                 if short_contracts > 0 and s_tp > 0:
-                    
-                    # 새로운 숏 TP를 걸기 전에 기존 숏 매수(TP) 주문을 모조리 취소합니다.
-                    for o in account_state.get('open_orders', []):
-                        if o.get('positionSide') == 'SHORT' and o.get('side') == 'buy':
-                            try:
-                                self.exchange.cancel_order(o['id'], SYMBOL)
-                                print(f"🔄 숏 익절가 갱신을 위해 기존 주문({o['id']})을 취소했습니다.")
-                            except:
-                                pass # 취소에 실패하더라도 다음 코드로 자연스럽게 넘어감
 
                     tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
                     latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
