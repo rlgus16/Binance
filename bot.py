@@ -87,8 +87,8 @@ class AutoTrader:
             
             open_orders = self.exchange.fetch_open_orders(SYMBOL)
             
-            long_notional = float(long_pos.get('contracts', 0)) * float(long_pos.get('entryPrice', 0)) if long_pos else 0.0
-            short_notional = float(short_pos.get('contracts', 0)) * float(short_pos.get('entryPrice', 0)) if short_pos else 0.0
+            long_notional = abs(float(long_pos.get('notional', 0))) if long_pos else 0.0
+            short_notional = abs(float(short_pos.get('notional', 0))) if short_pos else 0.0
             
             return {
                 'usdt_free': usdt_free,
