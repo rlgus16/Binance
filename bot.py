@@ -114,7 +114,7 @@ class AutoTrader:
 
     def get_gemini_signal(self, df, account_state):
         print("Analyzing data with Gemini 3.1 Pro...")
-        recent_data = df.tail(10).to_dict(orient='records')
+        recent_data = df.tail(100).to_dict(orient='records')
         
         system_instruction = f"""You are an advanced quantitative trading AI for Binance USD-M Futures.
 You are trading {SYMBOL} on {TIMEFRAME} candles.
