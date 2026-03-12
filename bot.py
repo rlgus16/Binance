@@ -124,13 +124,14 @@ RULES AND CONSTRAINTS:
 2. Hedge Mode is ON. Open LONG and SHORT positions to maximize profit.
 3. The MAXIMUM total LONG position size must NEVER exceed {MAX_LONG_SIZE_USDT} USDT (notional).
 4. The TOTAL SHORT position size must NEVER exceed the CURRENT LONG NOTIONAL size at all times.
-5. LONG does not need a shield. Free_balance is abundant for LONG.
+5. LONG doesn't need hedging. Free_balance is abundant for LONG.
 6. SHORT must use LONG as a shield.
 7. NEVER execute a STOP_LOSS order.
 8. You can average down to maximize profit.
 9. Exits MUST rely on take_profit orders hitting their targets.
 10. Predict and provide take_profit for open positions.
-11. Predict and place limit_order for entries.
+11. Prodvide only one take_profit for each position.
+12. Predict and place limit_order for entries.
 
 Respond ONLY with a valid JSON format (without markdown code blocks) representing your trading decision.
 Format:
@@ -245,6 +246,15 @@ Based on this, what are your next orders?
                 amount_to_close_long_clean = float(amount_to_close_long_str)
 
                 if long_contracts > 0 and l_tp > 0:
+                    # 새로운 TP를 걸기 전에 기존 롱 매도(TP) 주문을 찾아 모조리 취소합니다.
+                    for o in account_state.get('open_orders', []):
+                        if o.get('positionSide') == 'LONG' and o.get('side') == 'sell':
+                            try:
+                                self.exchange.cancel_order(o['id'], SYMBOL)
+                                print(f"🔄 롱 익절가 갱신을 위해 기존 주문({o['id']})을 취소했습니다.")
+                            except:
+                                pass # 취소 실패해도 그냥 넘어감
+
                     if amount_to_close_long_clean > 0:
                         tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
                         latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
@@ -268,8 +278,19 @@ Based on this, what are your next orders?
                 # 🛡️ 숏 100% 전량 익절
                 # ==========================================
                 if short_contracts > 0 and s_tp > 0:
+                    
+                    # 새로운 숏 TP를 걸기 전에 기존 숏 매수(TP) 주문을 모조리 취소합니다.
+                    for o in account_state.get('open_orders', []):
+                        if o.get('positionSide') == 'SHORT' and o.get('side') == 'buy':
+                            try:
+                                self.exchange.cancel_order(o['id'], SYMBOL)
+                                print(f"🔄 숏 익절가 갱신을 위해 기존 주문({o['id']})을 취소했습니다.")
+                            except:
+                                pass # 취소에 실패하더라도 다음 코드로 자연스럽게 넘어감
+
                     tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
                     latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
+                    
                     if s_tp < latest_price:
                         try:
                             self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=None, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
