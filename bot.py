@@ -205,7 +205,6 @@ Based on this, what are your next orders?
                     print("🚨 기존 방패(TP) 취소에 3회 연속 실패했습니다! 중복 주문 꼬임 대참사를 막기 위해 이번 턴의 진입/익절을 안전하게 포기합니다.")
                     return
 
-            # Fix 3: TP 복구는 cancel 여부와 무관하게 항상 실행 (포지션이 있으면 항상 보호)
             positions = self.exchange.fetch_positions([SYMBOL])
             long_pos = next((p for p in positions if p.get('side') == 'long'), None)
             short_pos = next((p for p in positions if p.get('side') == 'short'), None)
@@ -220,11 +219,11 @@ Based on this, what are your next orders?
             # 롱 방패 복구
             if long_contracts > 0 and l_tp > 0:
                 tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
-                latest_price = self.exchange.fetch_ticker(SYMBOL)['last']  # Fix 4: 판단 직전에 최신가 재조회
+                latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
                 if l_tp > latest_price:
                     try:
-                        # Fix 6: amount=None 대신 실제 contracts 수량 전달
-                        self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=long_contracts, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str), 'closePosition': True})
+                        # [해결] closePosition: True를 쓰기 위해 amount=None으로 되돌립니다.
+                        self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=None, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str), 'closePosition': True})
                         print(f"🛡️ 기존 롱 포지션 익절(TP) 복구 완료: {tp_str}")
                     except Exception as e:
                         print(f"⚠️ 롱 포지션 TP 복구 실패: {e}")
@@ -238,11 +237,11 @@ Based on this, what are your next orders?
             # 숏 방패 복구
             if short_contracts > 0 and s_tp > 0:
                 tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
-                latest_price = self.exchange.fetch_ticker(SYMBOL)['last']  # Fix 4: 판단 직전에 최신가 재조회
+                latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
                 if s_tp < latest_price:
                     try:
-                        # Fix 6: amount=None 대신 실제 contracts 수량 전달
-                        self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=short_contracts, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
+                        # [해결] closePosition: True를 쓰기 위해 amount=None으로 되돌립니다.
+                        self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=None, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
                         print(f"🛡️ 기존 숏 포지션 익절(TP) 복구 완료: {tp_str}")
                     except Exception as e:
                         print(f"⚠️ 숏 포지션 TP 복구 실패: {e}")
@@ -258,7 +257,7 @@ Based on this, what are your next orders?
                 print("No new orders to execute.")
                 return
 
-            # Fix 2, 5: 새 주문 처리 전 최신 계좌 상태 갱신 (TP 체결 반영 + 들여쓰기 정규화)
+            # 새 주문 처리 전 최신 계좌 상태 갱신
             fresh_state = self.get_account_state()
             if fresh_state:
                 account_state = fresh_state
