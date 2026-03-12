@@ -15,7 +15,7 @@ SYMBOL = 'LTC/USDT:USDT'
 TIMEFRAME = '4h'
 LEVERAGE = 5
 MAX_LONG_SIZE_USDT = 2000
-LOOP_INTERVAL_MINUTES = 10
+LOOP_INTERVAL_MINUTES = 15
 
 class AutoTrader:
     def __init__(self):
@@ -130,7 +130,7 @@ RULES AND CONSTRAINTS:
 8. You can average down to maximize profit.
 9. Exits MUST rely on take_profit orders hitting their targets.
 10. Predict and provide take_profit for open positions.
-11. Prodvide only one take_profit for each position.
+11. Provide only one take_profit for each position.
 12. Predict and place limit_order for entries.
 
 Respond ONLY with a valid JSON format (without markdown code blocks) representing your trading decision.
@@ -209,8 +209,8 @@ Based on this, what are your next orders?
                         pending_short_amount_coin += float(amount_coin_str)
 
 
-            if decision.get('cancel_all_open_orders'):
-                print("🗑️ AI의 지시에 따라 기존의 모든 미체결 주문을 취소합니다...")
+            if True: # 무조건 기존 주문 전체 취소!
+                print("🗑️ 턴 시작: 모든 미체결 주문을 싹쓸이합니다...")
                 
                 cancel_success = False
                 for _ in range(3):
