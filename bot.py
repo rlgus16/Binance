@@ -293,6 +293,9 @@ Based on this, what are your next orders?
 
             tracked_long = float(account_state['long_position']['notional'])
             tracked_short = float(account_state['short_position']['notional'])
+            
+            # 실제 체결된 롱 포지션만 숏 방패로 쓰기 위해 변수를 따로 분리합니다.
+            actual_long_shield = float(account_state['long_position']['notional'])
 
             for order in orders:
                 side = order.get('side', '').lower() 
@@ -312,14 +315,14 @@ Based on this, what are your next orders?
                             continue
                     tracked_long += amount_usdt 
                     
-                # 숏 진입 (롱 방어막 크기 안에서만)
+                # 숏 진입 (반드시 '이미 체결된' 롱 방어막 크기 안에서만)
                 elif pos_side == 'SHORT' and side == 'sell':
-                    if tracked_short + amount_usdt > tracked_long:
-                        amount_usdt = tracked_long - tracked_short
+                    if tracked_short + amount_usdt > actual_long_shield: # ⭐ tracked_long 대신 actual_long_shield 사용
+                        amount_usdt = actual_long_shield - tracked_short
                         if amount_usdt < 5.0:
-                            print(f"⚠️ 숏 포지션이 롱 포지션(방패) 크기를 초과하려 합니다! 진입을 강제 차단합니다.")
+                            print(f"⚠️ 숏 포지션이 실제 롱 포지션(방패) 크기를 초과하려 합니다! 진입을 강제 차단합니다.")
                             continue
-                    tracked_short += amount_usdt 
+                    tracked_short += amount_usdt
 
                 amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
                 amount_coin = float(amount_coin_str)
