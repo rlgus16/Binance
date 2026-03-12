@@ -192,12 +192,28 @@ Based on this, what are your next orders?
             # ==========================================
             pending_short_amount_coin = 0.0
             
+            # 실제 하단 주문 로직과 동일하게 롱 방패 한도를 시뮬레이션합니다.
+            simulated_long_shield = float(account_state['long_position']['notional'])
+            simulated_tracked_short = float(account_state['short_position']['notional'])
+            
             # 이번 턴에 AI가 새롭게 진입하려는 신규 숏 대기 주문 수량 합산
             new_orders = decision.get('orders') or []
             for order in new_orders:
                 if order.get('positionSide', '').upper() == 'SHORT' and order.get('side', '').lower() == 'sell':
                     a_usdt = float(order.get('amount_usdt') or 0)
                     p = float(order.get('price') or 0)
+                    
+                    # 1. 방패(롱) 크기를 초과하는 숏 주문은 미리 잘라냄
+                    if simulated_tracked_short + a_usdt > simulated_long_shield:
+                        a_usdt = simulated_long_shield - simulated_tracked_short
+                    
+                    # 2. 잘라낸 후 금액이 너무 작으면(5 USDT 미만) 무시
+                    if a_usdt < 5.0:
+                        continue
+                        
+                    simulated_tracked_short += a_usdt # 누적
+                    
+                    # 3. 실제 유효한 수량만 코인 개수로 변환하여 합산
                     if p > 0:
                         amount_coin_str = self.exchange.amount_to_precision(SYMBOL, a_usdt / p)
                         pending_short_amount_coin += float(amount_coin_str)
