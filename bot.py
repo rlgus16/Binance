@@ -204,53 +204,55 @@ Based on this, what are your next orders?
                 if not cancel_success:
                     print("🚨 기존 방패(TP) 취소에 3회 연속 실패했습니다! 중복 주문 꼬임 대참사를 막기 위해 이번 턴의 진입/익절을 안전하게 포기합니다.")
                     return
-
-            positions = self.exchange.fetch_positions([SYMBOL])
-            long_pos = next((p for p in positions if p.get('side') == 'long'), None)
-            short_pos = next((p for p in positions if p.get('side') == 'short'), None)
-            
-            long_contracts = float(long_pos.get('contracts', 0)) if long_pos else 0.0
-            short_contracts = float(short_pos.get('contracts', 0)) if short_pos else 0.0
-            
-            existing_tp = decision.get('existing_position_tp') or {}
-            l_tp = float(existing_tp.get('LONG') or 0)
-            s_tp = float(existing_tp.get('SHORT') or 0)
-            
-            # 롱 방패 복구
-            if long_contracts > 0 and l_tp > 0:
-                tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
-                latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
-                if l_tp > latest_price:
-                    try:
-                        # [해결] closePosition: True를 쓰기 위해 amount=None으로 되돌립니다.
-                        self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=None, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str), 'closePosition': True})
-                        print(f"🛡️ 기존 롱 포지션 익절(TP) 복구 완료: {tp_str}")
-                    except Exception as e:
-                        print(f"⚠️ 롱 포지션 TP 복구 실패: {e}")
-                else:
-                    try:
-                        print(f"🚨 현재가({latest_price})가 롱 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
-                        self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=long_contracts, params={'positionSide': 'LONG'})
-                    except Exception as e:
-                        print(f"⚠️ 롱 시장가 익절 실패: {e}")
-            
-            # 숏 방패 복구
-            if short_contracts > 0 and s_tp > 0:
-                tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
-                latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
-                if s_tp < latest_price:
-                    try:
-                        # [해결] closePosition: True를 쓰기 위해 amount=None으로 되돌립니다.
-                        self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=None, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
-                        print(f"🛡️ 기존 숏 포지션 익절(TP) 복구 완료: {tp_str}")
-                    except Exception as e:
-                        print(f"⚠️ 숏 포지션 TP 복구 실패: {e}")
-                else:
-                    try:
-                        print(f"🚨 현재가({latest_price})가 숏 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
-                        self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=short_contracts, params={'positionSide': 'SHORT'})
-                    except Exception as e:
-                        print(f"⚠️ 숏 시장가 익절 실패: {e}")
+                
+                # ==========================================
+                # 🛡️ [핵심 해결] 취소가 완료되었을 때만! 기존 방패(TP)를 복구하도록 if문 안쪽으로 들여쓰기(Indentation)를 맞췄습니다.
+                # ==========================================
+                positions = self.exchange.fetch_positions([SYMBOL])
+                long_pos = next((p for p in positions if p.get('side') == 'long'), None)
+                short_pos = next((p for p in positions if p.get('side') == 'short'), None)
+                
+                long_contracts = float(long_pos.get('contracts', 0)) if long_pos else 0.0
+                short_contracts = float(short_pos.get('contracts', 0)) if short_pos else 0.0
+                
+                existing_tp = decision.get('existing_position_tp') or {}
+                l_tp = float(existing_tp.get('LONG') or 0)
+                s_tp = float(existing_tp.get('SHORT') or 0)
+                
+                # 롱 방패 복구
+                if long_contracts > 0 and l_tp > 0:
+                    tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
+                    latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
+                    if l_tp > latest_price:
+                        try:
+                            self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=None, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str), 'closePosition': True})
+                            print(f"🛡️ 기존 롱 포지션 익절(TP) 복구 완료: {tp_str}")
+                        except Exception as e:
+                            print(f"⚠️ 롱 포지션 TP 복구 실패: {e}")
+                    else:
+                        try:
+                            print(f"🚨 현재가({latest_price})가 롱 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
+                            self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=long_contracts, params={'positionSide': 'LONG'})
+                        except Exception as e:
+                            print(f"⚠️ 롱 시장가 익절 실패: {e}")
+                
+                # 숏 방패 복구
+                if short_contracts > 0 and s_tp > 0:
+                    tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
+                    latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
+                    if s_tp < latest_price:
+                        try:
+                            self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=None, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
+                            print(f"🛡️ 기존 숏 포지션 익절(TP) 복구 완료: {tp_str}")
+                        except Exception as e:
+                            print(f"⚠️ 숏 포지션 TP 복구 실패: {e}")
+                    else:
+                        try:
+                            print(f"🚨 현재가({latest_price})가 숏 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
+                            self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=short_contracts, params={'positionSide': 'SHORT'})
+                        except Exception as e:
+                            print(f"⚠️ 숏 시장가 익절 실패: {e}")
+                # ==========================================
 
             orders = decision.get('orders') or []
             if not orders:
