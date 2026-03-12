@@ -28,7 +28,7 @@ class AutoTrader:
         if not gemini_api_key:
             raise ValueError("Missing Gemini API key in .env")
 
-        print("Initializing Binance USDS-M Futures...")
+        print("Initializing Binance USDT-M Futures...")
         self.exchange = ccxt.binance({
             'apiKey': binance_api_key,
             'secret': binance_secret_key,
@@ -205,9 +205,6 @@ Based on this, what are your next orders?
                     print("🚨 기존 방패(TP) 취소에 3회 연속 실패했습니다! 중복 주문 꼬임 대참사를 막기 위해 이번 턴의 진입/익절을 안전하게 포기합니다.")
                     return
                 
-                # ==========================================
-                # 🛡️ [핵심 해결] 취소가 완료되었을 때만! 기존 방패(TP)를 복구하도록 if문 안쪽으로 들여쓰기(Indentation)를 맞췄습니다.
-                # ==========================================
                 positions = self.exchange.fetch_positions([SYMBOL])
                 long_pos = next((p for p in positions if p.get('side') == 'long'), None)
                 short_pos = next((p for p in positions if p.get('side') == 'short'), None)
@@ -219,31 +216,42 @@ Based on this, what are your next orders?
                 l_tp = float(existing_tp.get('LONG') or 0)
                 s_tp = float(existing_tp.get('SHORT') or 0)
                 
-                # 롱 방패 복구
-                if long_contracts > 0 and l_tp > 0:
-                    tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
-                    latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
-                    if l_tp > latest_price:
-                        try:
-                            self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=None, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str), 'closePosition': True})
-                            print(f"🛡️ 기존 롱 포지션 익절(TP) 복구 완료: {tp_str}")
-                        except Exception as e:
-                            print(f"⚠️ 롱 포지션 TP 복구 실패: {e}")
-                    else:
-                        try:
-                            print(f"🚨 현재가({latest_price})가 롱 목표가({tp_str}) 돌파! 즉시 시장가 익절합니다.")
-                            self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=long_contracts, params={'positionSide': 'LONG'})
-                        except Exception as e:
-                            print(f"⚠️ 롱 시장가 익절 실패: {e}")
+                # ==========================================
+                # 🛡️ [핵심 수정] 롱 부분 익절(Partial TP)을 위한 계산
+                # ==========================================
+                amount_to_close_long = long_contracts - short_contracts
+                amount_to_close_long_str = self.exchange.amount_to_precision(SYMBOL, amount_to_close_long) if amount_to_close_long > 0 else "0"
+                amount_to_close_long_clean = float(amount_to_close_long_str)
                 
-                # 숏 방패 복구
+                # 롱 방패 복구 (초과분만 부분 익절)
+                if long_contracts > 0 and l_tp > 0:
+                    if amount_to_close_long_clean > 0:
+                        tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
+                        latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
+                        if l_tp > latest_price:
+                            try:
+                                # closePosition 옵션을 빼고 수량을 직접 지정 (부분 익절)
+                                self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=amount_to_close_long_clean, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str)})
+                                print(f"🛡️ 롱 포지션 부분 익절(TP) 장전 완료: {tp_str} (익절 수량: {amount_to_close_long_clean} / 남는 숏 방어용 수량: {short_contracts})")
+                            except Exception as e:
+                                print(f"⚠️ 롱 포지션 부분 TP 복구 실패: {e}")
+                        else:
+                            try:
+                                print(f"🚨 현재가({latest_price})가 롱 목표가({tp_str}) 돌파! 즉시 시장가 부분 익절합니다.")
+                                self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=amount_to_close_long_clean, params={'positionSide': 'LONG'})
+                            except Exception as e:
+                                print(f"⚠️ 롱 시장가 부분 익절 실패: {e}")
+                    else:
+                        print(f"🛡️ 롱 수량({long_contracts})과 숏 수량({short_contracts})이 동일한 완벽 헤지 상태이므로, 롱 익절(TP) 주문을 보류하여 방어막을 유지합니다.")
+                
+                # 숏 방패 복구 (숏은 그대로 전량 익절)
                 if short_contracts > 0 and s_tp > 0:
                     tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
                     latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
                     if s_tp < latest_price:
                         try:
                             self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=None, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
-                            print(f"🛡️ 기존 숏 포지션 익절(TP) 복구 완료: {tp_str}")
+                            print(f"🛡️ 숏 포지션 전량 익절(TP) 장전 완료: {tp_str}")
                         except Exception as e:
                             print(f"⚠️ 숏 포지션 TP 복구 실패: {e}")
                     else:
@@ -252,19 +260,16 @@ Based on this, what are your next orders?
                             self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=short_contracts, params={'positionSide': 'SHORT'})
                         except Exception as e:
                             print(f"⚠️ 숏 시장가 익절 실패: {e}")
-                # ==========================================
 
             orders = decision.get('orders') or []
             if not orders:
                 print("No new orders to execute.")
                 return
 
-            # 새 주문 처리 전 최신 계좌 상태 갱신
             fresh_state = self.get_account_state()
             if fresh_state:
                 account_state = fresh_state
 
-            # 최신 포지션 notional 기준으로 tracking 변수 초기화
             tracked_long = float(account_state['long_position']['notional'])
             tracked_short = float(account_state['short_position']['notional'])
 
@@ -278,7 +283,6 @@ Based on this, what are your next orders?
 
                 if amount_usdt <= 0 or price <= 0: continue
                 
-                # 진입(Entry) 주문일 때 추적 변수에 누적하여 한도 검사
                 if pos_side == 'LONG' and side == 'buy':
                     if tracked_long + amount_usdt > MAX_LONG_SIZE_USDT:
                         amount_usdt = MAX_LONG_SIZE_USDT - tracked_long
