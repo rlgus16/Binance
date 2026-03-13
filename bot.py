@@ -365,7 +365,6 @@ Based on this, what are your next orders?
                         amount_coin = float(amount_coin_str)
                         
                     tracked_long += amount_usdt
-                    actual_long_shield_coin += amount_coin
                     
                 # 숏 진입 (반드시 '이미 체결된' 롱 코인 개수 안에서만)
                 elif pos_side == 'SHORT' and side == 'sell':
