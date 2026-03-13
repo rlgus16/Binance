@@ -124,7 +124,7 @@ You are trading {SYMBOL} on {TIMEFRAME} candles.
 RULES AND CONSTRAINTS:
 1. Cross Margin with {LEVERAGE}x Leverage.
 2. Hedge Mode is ON. Open LONG and SHORT positions to maximize profit.
-3. The MAXIMUM total LONG position size must NEVER exceed {MAX_LONG_SIZE_USDT} USDT (notional).
+3. The MAXIMUM total LONG position size must NEVER exceed {account_state['usdt_total']} USDT (notional).
 4. The TOTAL SHORT position size must NEVER exceed the CURRENT LONG NOTIONAL size at all times.
 5. LONG doesn't need hedging. Free_balance is abundant for LONG.
 6. SHORT must use LONG as a shield.
@@ -333,10 +333,11 @@ Based on this, what are your next orders?
                 if amount_coin <= 0: continue
                 
                 if pos_side == 'LONG' and side == 'buy':
-                    if tracked_long + amount_usdt > MAX_LONG_SIZE_USDT:
-                        amount_usdt = MAX_LONG_SIZE_USDT - tracked_long
+                    dynamic_max_long = float(account_state['usdt_total']) # 내 실시간 잔고를 최대 한도로 설정
+                    if tracked_long + amount_usdt > dynamic_max_long:
+                        amount_usdt = dynamic_max_long - tracked_long
                         if amount_usdt < 5.0:
-                            print(f"⚠️ 롱 포지션 최대 한도({MAX_LONG_SIZE_USDT} USDT)에 도달했습니다. 추가 진입을 강제 차단합니다.")
+                            print(f"⚠️ 롱 포지션 최대 한도(내 잔고: {dynamic_max_long:.2f} USDT)에 도달했습니다. 진입을 차단합니다.")
                             continue
                         # USDT 한도가 깎였으므로 진입 수량(coin) 다시 계산
                         amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
