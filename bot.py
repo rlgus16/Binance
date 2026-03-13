@@ -350,6 +350,11 @@ Based on this, what are your next orders?
                         amount_coin = float(amount_coin_str)
                         
                     tracked_short_coin += amount_coin
+                
+                # 허락되지 않은 방향의 환각 주문이 들어오면 무조건 차단
+                else:
+                    print(f"⚠️ AI가 신규 진입 로직에서 허가되지 않은 방향({pos_side} {side.upper()})의 주문을 시도했습니다! (강제 차단)")
+                    continue
 
                 price_str = self.exchange.price_to_precision(SYMBOL, price)
                 print(f"🎯 신규 액션: {side.upper()} {amount_coin} {SYMBOL} 진입가 {price_str} / 포지션: {pos_side}")
