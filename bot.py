@@ -232,11 +232,11 @@ Based on this, what are your next orders?
                     try:
                         self.exchange.cancel_all_orders(SYMBOL)
                         cancel_success = True
-                        time.sleep(1)
+                        time.sleep(2)
                         break
                     except Exception as e:
-                        print(f"⚠️ 기존 주문 취소 실패 (1초 후 재시도...): {e}")
-                        time.sleep(1)
+                        print(f"⚠️ 기존 주문 취소 실패 (2초 후 재시도...): {e}")
+                        time.sleep(2)
                         
                 if not cancel_success:
                     print("🚨 기존 TP 취소에 3회 연속 실패했습니다! 중복 주문 꼬임 대참사를 막기 위해 이번 턴을 포기합니다.")
@@ -308,11 +308,19 @@ Based on this, what are your next orders?
                 print("🛑 실행할 새로운 진입 주문이 없습니다.")
                 return
 
-            fresh_state = self.get_account_state()
-            if fresh_state:
-                account_state = fresh_state
-            else:
-                print("🚨 잔고 최신화 실패. 안전을 위해 이번 턴 신규 진입을 취소합니다.")
+            fresh_state = None
+            for attempt in range(3):
+                fresh_state = self.get_account_state()
+                if fresh_state:
+                    account_state = fresh_state
+                    break
+                else:
+                    print(f"⚠️ 잔고 최신화 실패 ({attempt + 1}/3회). 2초 후 다시 시도합니다...")
+                    time.sleep(2)
+            
+            # 3번 모두 실패했을 경우에만 최종적으로 취소 처리
+            if not fresh_state:
+                print("🚨 3회 연속 잔고 최신화 실패! 안전을 위해 이번 턴 신규 진입을 취소합니다.")
                 return
 
             tracked_long = float(account_state['long_position']['notional'])
