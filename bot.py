@@ -205,18 +205,23 @@ Based on this, what are your next orders?
                     p = float(order.get('price') or 0)
                     
                     if p > 0:
-                        order_coin = a_usdt / p  # 지정가로 주문할 코인 개수 계산
+                        # 하단 실제 로직과 똑같이 계산 직후 거래소 정밀도(소수점)로 먼저 잘라냅니다.
+                        raw_coin_str = self.exchange.amount_to_precision(SYMBOL, a_usdt / p)
+                        order_coin = float(raw_coin_str)
                         
-                        # 방패(롱 코인 수량) 크기를 초과하는 숏 주문은 개수 단위에서 미리 잘라냄
+                        if order_coin <= 0: continue
+                        
+                        # 방패 크기를 초과하는지 검사
                         if simulated_tracked_short_coin + order_coin > simulated_long_shield_coin:
                             order_coin = simulated_long_shield_coin - simulated_tracked_short_coin
+                            # 깎아낸 후에도 정밀도를 다시 맞춰야 하단 로직과 완벽히 일치합니다.
+                            capped_coin_str = self.exchange.amount_to_precision(SYMBOL, order_coin)
+                            order_coin = float(capped_coin_str)
                         
                         if order_coin <= 0: continue
                             
                         simulated_tracked_short_coin += order_coin
-                        
-                        amount_coin_str = self.exchange.amount_to_precision(SYMBOL, order_coin)
-                        pending_short_amount_coin += float(amount_coin_str)
+                        pending_short_amount_coin += order_coin
 
 
             if True: # 무조건 기존 주문 전체 취소!
