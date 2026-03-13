@@ -214,7 +214,7 @@ Based on this, what are your next orders?
                 long_contracts = float(long_pos.get('contracts', 0)) if long_pos else 0.0
                 short_contracts = float(short_pos.get('contracts', 0)) if short_pos else 0.0
                 
-                # 여기로 이사 옵니다! 과거 잔고가 아닌, 방금 불러온 "최신 잔고"로 시뮬레이션을 돌립니다!
+                # 과거 잔고가 아닌, 방금 불러온 "최신 잔고"로 시뮬레이션을 돌립니다!
                 pending_short_amount_coin = 0.0
                 simulated_long_shield_coin = long_contracts
                 simulated_tracked_short_coin = short_contracts
@@ -342,7 +342,8 @@ Based on this, what are your next orders?
                         amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
                         amount_coin = float(amount_coin_str)
                         
-                    tracked_long += amount_usdt 
+                    tracked_long += amount_usdt
+                    actual_long_shield_coin += amount_coin
                     
                 # 숏 진입 (반드시 '이미 체결된' 롱 코인 개수 안에서만)
                 elif pos_side == 'SHORT' and side == 'sell':
