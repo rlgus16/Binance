@@ -95,11 +95,13 @@ class AutoTrader:
                 'usdt_total': usdt_total,
                 'long_position': {
                     'notional': long_notional,
+                    'contracts': float(long_pos.get('contracts', 0)) if long_pos else 0.0,
                     'entryPrice': float(long_pos.get('entryPrice', 0)) if long_pos else 0.0,
                     'unrealizedPnl': float(long_pos.get('unrealizedPnl', 0)) if long_pos else 0.0,
                 },
                 'short_position': {
                     'notional': short_notional,
+                    'contracts': float(short_pos.get('contracts', 0)) if short_pos else 0.0,
                     'entryPrice': float(short_pos.get('entryPrice', 0)) if short_pos else 0.0,
                     'unrealizedPnl': float(short_pos.get('unrealizedPnl', 0)) if short_pos else 0.0,
                 },
@@ -192,30 +194,28 @@ Based on this, what are your next orders?
             # ==========================================
             pending_short_amount_coin = 0.0
             
-            # 실제 하단 주문 로직과 동일하게 롱 방패 한도를 시뮬레이션합니다.
-            simulated_long_shield = float(account_state['long_position']['notional'])
-            simulated_tracked_short = float(account_state['short_position']['notional'])
+            # USDT 금액이 아닌 "코인 개수(Contracts)"로 방패를 시뮬레이션합니다.
+            simulated_long_shield_coin = float(account_state['long_position']['contracts'])
+            simulated_tracked_short_coin = float(account_state['short_position']['contracts'])
             
-            # 이번 턴에 AI가 새롭게 진입하려는 신규 숏 대기 주문 수량 합산
             new_orders = decision.get('orders') or []
             for order in new_orders:
                 if order.get('positionSide', '').upper() == 'SHORT' and order.get('side', '').lower() == 'sell':
                     a_usdt = float(order.get('amount_usdt') or 0)
                     p = float(order.get('price') or 0)
                     
-                    # 1. 방패(롱) 크기를 초과하는 숏 주문은 미리 잘라냄
-                    if simulated_tracked_short + a_usdt > simulated_long_shield:
-                        a_usdt = simulated_long_shield - simulated_tracked_short
-                    
-                    # 2. 잘라낸 후 금액이 너무 작으면(5 USDT 미만) 무시
-                    if a_usdt < 5.0:
-                        continue
-                        
-                    simulated_tracked_short += a_usdt # 누적
-                    
-                    # 3. 실제 유효한 수량만 코인 개수로 변환하여 합산
                     if p > 0:
-                        amount_coin_str = self.exchange.amount_to_precision(SYMBOL, a_usdt / p)
+                        order_coin = a_usdt / p  # 지정가로 주문할 코인 개수 계산
+                        
+                        # 방패(롱 코인 수량) 크기를 초과하는 숏 주문은 개수 단위에서 미리 잘라냄
+                        if simulated_tracked_short_coin + order_coin > simulated_long_shield_coin:
+                            order_coin = simulated_long_shield_coin - simulated_tracked_short_coin
+                        
+                        if order_coin <= 0: continue
+                            
+                        simulated_tracked_short_coin += order_coin
+                        
+                        amount_coin_str = self.exchange.amount_to_precision(SYMBOL, order_coin)
                         pending_short_amount_coin += float(amount_coin_str)
 
 
@@ -308,10 +308,8 @@ Based on this, what are your next orders?
                 account_state = fresh_state
 
             tracked_long = float(account_state['long_position']['notional'])
-            tracked_short = float(account_state['short_position']['notional'])
-            
-            # 실제 체결된 롱 포지션만 숏 방패로 쓰기 위해 변수를 따로 분리합니다.
-            actual_long_shield = float(account_state['long_position']['notional'])
+            actual_long_shield_coin = float(account_state['long_position']['contracts']) # 숏 방어막은 무조건 "코인 개수(Contracts)" 기준
+            tracked_short_coin = float(account_state['short_position']['contracts'])
 
             for order in orders:
                 side = order.get('side', '').lower() 
@@ -323,28 +321,36 @@ Based on this, what are your next orders?
 
                 if amount_usdt <= 0 or price <= 0: continue
                 
+                # 먼저 정상적인 코인 수량을 계산합니다.
+                amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
+                amount_coin = float(amount_coin_str)
+                if amount_coin <= 0: continue
+                
                 if pos_side == 'LONG' and side == 'buy':
                     if tracked_long + amount_usdt > MAX_LONG_SIZE_USDT:
                         amount_usdt = MAX_LONG_SIZE_USDT - tracked_long
                         if amount_usdt < 5.0:
                             print(f"⚠️ 롱 포지션 최대 한도({MAX_LONG_SIZE_USDT} USDT)에 도달했습니다. 추가 진입을 강제 차단합니다.")
                             continue
+                        # USDT 한도가 깎였으므로 진입 수량(coin) 다시 계산
+                        amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
+                        amount_coin = float(amount_coin_str)
+                        
                     tracked_long += amount_usdt 
                     
-                # 숏 진입 (반드시 '이미 체결된' 롱 방어막 크기 안에서만)
+                # 숏 진입 (반드시 '이미 체결된' 롱 코인 개수 안에서만)
                 elif pos_side == 'SHORT' and side == 'sell':
-                    if tracked_short + amount_usdt > actual_long_shield: # ⭐ tracked_long 대신 actual_long_shield 사용
-                        amount_usdt = actual_long_shield - tracked_short
-                        if amount_usdt < 5.0:
-                            print(f"⚠️ 숏 포지션이 실제 롱 포지션(방패) 크기를 초과하려 합니다! 진입을 강제 차단합니다.")
+                    if tracked_short_coin + amount_coin > actual_long_shield_coin: 
+                        amount_coin = actual_long_shield_coin - tracked_short_coin
+                        if amount_coin <= 0:
+                            print(f"⚠️ 숏 포지션이 실제 롱 포지션(방패) 수량을 초과하려 합니다! 진입을 강제 차단합니다.")
                             continue
-                    tracked_short += amount_usdt
+                        # 수량이 깎였으므로 거래소 규격에 맞게 소수점 정밀도 다시 맞춤
+                        amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_coin)
+                        amount_coin = float(amount_coin_str)
+                        
+                    tracked_short_coin += amount_coin
 
-                amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
-                amount_coin = float(amount_coin_str)
-                if amount_coin <= 0:
-                    continue
-                
                 price_str = self.exchange.price_to_precision(SYMBOL, price)
                 print(f"🎯 신규 액션: {side.upper()} {amount_coin} {SYMBOL} 진입가 {price_str} / 포지션: {pos_side}")
                 
