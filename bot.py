@@ -12,10 +12,10 @@ load_dotenv()
 
 # Configuration
 SYMBOL = 'LTC/USDT:USDT'
-TIMEFRAME = '4h'
+TIMEFRAME = '8h'
 LEVERAGE = 5
 MAX_LONG_SIZE_USDT = 2000
-LOOP_INTERVAL_MINUTES = 15
+LOOP_INTERVAL_MINUTES = 30
 
 class AutoTrader:
     def __init__(self):
@@ -163,7 +163,7 @@ USDT Total: {account_state['usdt_total']}
 Long Position: Notional {account_state['long_position']['notional']} USDT at Avg Price {account_state['long_position']['entryPrice']}
 Short Position: Notional {account_state['short_position']['notional']} USDT at Avg Price {account_state['short_position']['entryPrice']}
 Open Orders count: {len(account_state['open_orders'])}
-Last prices from 4H Candles:
+Last prices from {TIMEFRAME} Candles:
 {recent_data}
 
 Based on this, what are your next orders?
@@ -198,7 +198,7 @@ Based on this, what are your next orders?
                     try:
                         # 1차: 일반 대기 주문들 일괄 취소
                         self.exchange.cancel_all_orders(SYMBOL)
-                        time.sleep(2) # 거래소 서버 반영 대기
+                        time.sleep(2) # 일괄 취소 끝낼 시간
                         
                         # 2차: 일괄 취소를 무시하고 살아남은 TP(조건부) 주문들을 샅샅이 뒤져서 개별 삭제
                         leftovers = self.exchange.fetch_open_orders(SYMBOL)
@@ -210,11 +210,11 @@ Based on this, what are your next orders?
                                 pass # 이미 지워진 경우 무시
                                 
                         cancel_success = True
-                        time.sleep(2)
+                        time.sleep(2) # 새 주문 진입 전 완벽한 초기화 확정
                         break
                     except Exception as e:
-                        print(f"⚠️ 기존 주문 취소 실패 (2초 후 재시도...): {e}")
-                        time.sleep(2)
+                        print(f"⚠️ 기존 주문 취소 실패 (60초 후 재시도...): {e}")
+                        time.sleep(60)
                         
                 if not cancel_success:
                     print("🚨 기존 TP 취소에 3회 연속 실패했습니다! 중복 주문 꼬임 대참사를 막기 위해 이번 턴을 포기합니다.")
@@ -318,8 +318,8 @@ Based on this, what are your next orders?
                     account_state = fresh_state
                     break
                 else:
-                    print(f"⚠️ 잔고 최신화 실패 ({attempt + 1}/3회). 2초 후 다시 시도합니다...")
-                    time.sleep(2)
+                    print(f"⚠️ 잔고 최신화 실패 ({attempt + 1}/3회). 60초 후 다시 시도합니다...")
+                    time.sleep(60)
             
             # 3번 모두 실패했을 경우에만 최종적으로 취소 처리
             if not fresh_state:
@@ -401,11 +401,11 @@ Based on this, what are your next orders?
                 
                 df = self.fetch_data()
                 if df is None or df.empty:
-                    time.sleep(60); continue
+                    time.sleep(60); continue # 데이터 수집 실패 시 60초 후 재시도
                 
                 account_state = self.get_account_state()
                 if account_state is None:
-                    time.sleep(60); continue
+                    time.sleep(60); continue # 잔고 최신화 실패 시 60초 후 재시도
                 
                 signal = self.get_gemini_signal(df, account_state)
                 self.execute_orders(signal, account_state)
@@ -415,8 +415,8 @@ Based on this, what are your next orders?
                 
             except Exception as e:
                 print(f"🚨 메인 루프 실행 중 치명적 오류 발생: {e}")
-                print("⏳ 안전을 위해 5분 대기 후 재시도합니다...")
-                time.sleep(300)
+                print("⏳ 안전을 위해 10분 대기 후 재시도합니다...")
+                time.sleep(600)
 
 if __name__ == "__main__":
     try:
