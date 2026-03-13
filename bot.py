@@ -207,13 +207,20 @@ Based on this, what are your next orders?
                                 self.exchange.cancel_order(leftover['id'], SYMBOL)
                                 print(f"🗑️ 끈질긴 TP 주문 개별 삭제 완료 (ID: {leftover['id']})")
                             except Exception as ex:
-                                pass # 이미 지워진 경우 무시
+                                print(f"⚠️ 개별 취소 에러 발생 (최종 검증으로 넘어감): {ex}")
+                                
+                        # 3차: 최종 검증 (진짜로 도화지가 하얘졌는지 마지막으로 확인)
+                        time.sleep(2) # 거래소 반영 대기
+                        final_check = self.exchange.fetch_open_orders(SYMBOL)
+                        if len(final_check) > 0:
+                            # 만약 통신 에러 등으로 안 지워진 주문이 1개라도 발견되면 강제로 에러를 발생시켜 재시도 유도!
+                            raise Exception(f"여전히 {len(final_check)}개의 주문이 지워지지 않고 살아있습니다!")
                                 
                         cancel_success = True
                         time.sleep(2) # 새 주문 진입 전 완벽한 초기화 확정
                         break
                     except Exception as e:
-                        print(f"⚠️ 기존 주문 취소 실패 (60초 후 재시도...): {e}")
+                        print(f"⚠️ 기존 주문 취소/확인 실패 (60초 후 재시도...): {e}")
                         time.sleep(60)
                         
                 if not cancel_success:
