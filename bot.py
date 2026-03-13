@@ -311,6 +311,9 @@ Based on this, what are your next orders?
             fresh_state = self.get_account_state()
             if fresh_state:
                 account_state = fresh_state
+            else:
+                print("🚨 잔고 최신화 실패. 안전을 위해 이번 턴 신규 진입을 취소합니다.")
+                return
 
             tracked_long = float(account_state['long_position']['notional'])
             actual_long_shield_coin = float(account_state['long_position']['contracts']) # 숏 방어막은 무조건 "코인 개수(Contracts)" 기준
