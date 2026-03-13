@@ -196,7 +196,19 @@ Based on this, what are your next orders?
                 cancel_success = False
                 for _ in range(3):
                     try:
+                        # 1차: 일반 대기 주문들 일괄 취소
                         self.exchange.cancel_all_orders(SYMBOL)
+                        time.sleep(2) # 거래소 서버 반영 대기
+                        
+                        # 2차: 일괄 취소를 무시하고 살아남은 TP(조건부) 주문들을 샅샅이 뒤져서 개별 삭제
+                        leftovers = self.exchange.fetch_open_orders(SYMBOL)
+                        for leftover in leftovers:
+                            try:
+                                self.exchange.cancel_order(leftover['id'], SYMBOL)
+                                print(f"🗑️ 끈질긴 TP 주문 개별 삭제 완료 (ID: {leftover['id']})")
+                            except Exception as ex:
+                                pass # 이미 지워진 경우 무시
+                                
                         cancel_success = True
                         time.sleep(2)
                         break
