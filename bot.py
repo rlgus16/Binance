@@ -278,9 +278,9 @@ Based on this, what are your next orders?
                         latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
                         if l_tp > latest_price:
                             try:
-                                # closePosition 옵션을 빼고 안전 수량만큼만 부분 익절
-                                self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='sell', amount=amount_to_close_long_clean, price=None, params={'positionSide': 'LONG', 'stopPrice': float(tp_str)})
-                                print(f"🛡️ 롱 익절 장전: {tp_str} (총 {long_contracts}개 중 익절 {amount_to_close_long_clean}개 / 방어용 예비군 {short_contracts + pending_short_amount_coin}개 유지)")
+                                # 일반 지정가 부분 익절
+                                self.exchange.create_order(symbol=SYMBOL, type='limit', side='sell', amount=amount_to_close_long_clean, price=float(tp_str), params={'positionSide': 'LONG'})
+                                print(f"🛡️ 롱 부분 익절(Limit) 장전: {tp_str} (총 {long_contracts}개 중 익절 {amount_to_close_long_clean}개 / 방어용 예비군 {short_contracts + pending_short_amount_coin}개 유지)")
                             except Exception as e:
                                 print(f"⚠️ 롱 부분 익절 예약 실패: {e}")
                         else:
