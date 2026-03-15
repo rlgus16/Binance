@@ -12,7 +12,8 @@ load_dotenv()
 
 # Configuration
 SYMBOL = 'LTC/USDT:USDT'
-TIMEFRAME = '8h'
+TIMEFRAME_EXEC = '8h'  # 매매 진입 타점용 (실행 프레임)
+TIMEFRAME_TREND = '1d' # 큰 추세 확인용 (트렌드 프레임)
 LEVERAGE = 5
 MAX_LONG_SIZE_USDT = 2000
 LOOP_INTERVAL_MINUTES = 30
@@ -56,10 +57,10 @@ class AutoTrader:
         except Exception as e:
             print(f"⚠️ 설정 정보/경고: {e}")
 
-    def fetch_data(self):
-        print(f"📊 {SYMBOL}의 {TIMEFRAME} 캔들 데이터 가져오는 중...")
+    def fetch_data(self, timeframe):
+        print(f"📊 {SYMBOL}의 {timeframe} 캔들 데이터 가져오는 중...")
         try:
-            ohlcv = self.exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=100)
+            ohlcv = self.exchange.fetch_ohlcv(SYMBOL, timeframe=timeframe, limit=100)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             
@@ -72,7 +73,7 @@ class AutoTrader:
             df.bfill(inplace=True)
             return df
         except Exception as e:
-            print(f"❌ 데이터 가져오기 오류: {e}")
+            print(f"❌ {timeframe} 데이터 가져오기 오류: {e}")
             return None
 
     def get_account_state(self):
@@ -114,13 +115,15 @@ class AutoTrader:
             print(f"❌ 계좌 상태 가져오기 오류: {e}")
             return None
 
-    def get_gemini_signal(self, df, account_state):
-        print("🤖 Gemini 3.1 Pro 모델로 시장 데이터 분석 중...")
-        recent_data = df.tail(100).to_dict(orient='records')
+    def get_gemini_signal(self, df_exec, df_trend, account_state):
+        print("🤖 Gemini 3.1 Pro 모델로 멀티 타임프레임(1D + 8H) 시장 데이터 분석 중...")
+        data_exec = df_exec.tail(90).to_dict(orient='records') # 8시간봉
+        data_trend = df_trend.tail(60).to_dict(orient='records') # 1일봉
+        
         max_allowed_long = min(MAX_LONG_SIZE_USDT, float(account_state['usdt_total']))
         
         system_instruction = f"""You are an advanced quantitative trading AI for Binance USD-M Futures.
-You are trading {SYMBOL} on {TIMEFRAME} candles.
+You are trading {SYMBOL} analyzing both {TIMEFRAME_TREND} (Macro Trend) and {TIMEFRAME_EXEC} (Execution) candles.
 
 RULES AND CONSTRAINTS:
 1. Cross Margin with {LEVERAGE}x Leverage.
@@ -135,11 +138,12 @@ RULES AND CONSTRAINTS:
 10. Predict and provide take_profit for open positions.
 11. Provide only one take_profit for each position.
 12. Predict and place limit_order for entries.
+13. Align your {TIMEFRAME_EXEC} entries with the major trend identified in the {TIMEFRAME_TREND} data.
 
 Respond ONLY with a valid JSON format (without markdown code blocks) representing your trading decision.
 Format:
 {{
-    "reasoning": "Explain your analysis...",
+    "reasoning": "Explain your multi-timeframe analysis...",
     "cancel_all_open_orders": true/false,
     "existing_position_tp": {{
         "LONG": <take profit limit for existing LONG position, or 0 if none>,
@@ -163,10 +167,14 @@ USDT Total: {account_state['usdt_total']}
 Long Position: Notional {account_state['long_position']['notional']} USDT at Avg Price {account_state['long_position']['entryPrice']}
 Short Position: Notional {account_state['short_position']['notional']} USDT at Avg Price {account_state['short_position']['entryPrice']}
 Open Orders count: {len(account_state['open_orders'])}
-Last prices from {TIMEFRAME} Candles:
-{recent_data}
 
-Based on this, what are your next orders?
+[MACRO TREND - Last prices from {TIMEFRAME_TREND} Candles]
+{data_trend}
+
+[EXECUTION TIMING - Last prices from {TIMEFRAME_EXEC} Candles]
+{data_exec}
+
+Based on this multi-timeframe analysis, what are your next orders?
 """
         try:
             response = self.client.models.generate_content(
@@ -196,11 +204,9 @@ Based on this, what are your next orders?
                 cancel_success = False
                 for _ in range(3):
                     try:
-                        # 1차: 일반 대기 주문들 일괄 취소
                         self.exchange.cancel_all_orders(SYMBOL)
-                        time.sleep(2) # 일괄 취소 끝낼 시간
+                        time.sleep(2) 
                         
-                        # 2차: 일괄 취소를 무시하고 살아남은 TP(조건부) 주문들을 샅샅이 뒤져서 개별 삭제
                         leftovers = self.exchange.fetch_open_orders(SYMBOL)
                         for leftover in leftovers:
                             try:
@@ -209,15 +215,13 @@ Based on this, what are your next orders?
                             except Exception as ex:
                                 print(f"⚠️ 개별 취소 에러 발생 (최종 검증으로 넘어감): {ex}")
                                 
-                        # 3차: 최종 검증 (진짜로 도화지가 하얘졌는지 마지막으로 확인)
-                        time.sleep(2) # 거래소 반영 대기
+                        time.sleep(2) 
                         final_check = self.exchange.fetch_open_orders(SYMBOL)
                         if len(final_check) > 0:
-                            # 만약 통신 에러 등으로 안 지워진 주문이 1개라도 발견되면 강제로 에러를 발생시켜 재시도 유도!
                             raise Exception(f"여전히 {len(final_check)}개의 주문이 지워지지 않고 살아있습니다!")
                                 
                         cancel_success = True
-                        time.sleep(2) # 새 주문 진입 전 완벽한 초기화 확정
+                        time.sleep(2) 
                         break
                     except Exception as e:
                         print(f"⚠️ 기존 주문 취소/확인 실패 (60초 후 재시도...): {e}")
@@ -234,7 +238,6 @@ Based on this, what are your next orders?
                 long_contracts = float(long_pos.get('contracts', 0)) if long_pos else 0.0
                 short_contracts = float(short_pos.get('contracts', 0)) if short_pos else 0.0
                 
-                # 과거 잔고가 아닌, 방금 불러온 "최신 잔고"로 시뮬레이션을 돌립니다!
                 pending_short_amount_coin = 0.0
                 simulated_long_shield_coin = long_contracts
                 simulated_tracked_short_coin = short_contracts
@@ -264,21 +267,18 @@ Based on this, what are your next orders?
                 s_tp = float(existing_tp.get('SHORT') or 0)
                 
                 # ==========================================
-                # 🛡️ 롱 수학적 익절 (대기 숏 물량만큼 롱 익절 보류)
+                # 🛡️ 롱 수학적 익절 
                 # ==========================================
                 amount_to_close_long = long_contracts - short_contracts - pending_short_amount_coin
                 amount_to_close_long_str = self.exchange.amount_to_precision(SYMBOL, amount_to_close_long) if amount_to_close_long > 0 else "0"
                 amount_to_close_long_clean = float(amount_to_close_long_str)
 
                 if long_contracts > 0 and l_tp > 0:
-                    # 새로운 TP를 걸기 전에 기존 롱 매도(TP) 주문을 찾아 모조리 취소합니다.
-
                     if amount_to_close_long_clean > 0:
                         tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
                         latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
                         if l_tp > latest_price:
                             try:
-                                # 일반 지정가 부분 익절
                                 self.exchange.create_order(symbol=SYMBOL, type='limit', side='sell', amount=amount_to_close_long_clean, price=float(tp_str), params={'positionSide': 'LONG'})
                                 print(f"🛡️ 롱 부분 익절(Limit) 장전: {tp_str} (총 {long_contracts}개 중 익절 {amount_to_close_long_clean}개 / 방어용 예비군 {short_contracts + pending_short_amount_coin}개 유지)")
                             except Exception as e:
@@ -296,7 +296,6 @@ Based on this, what are your next orders?
                 # 🛡️ 숏 100% 전량 익절
                 # ==========================================
                 if short_contracts > 0 and s_tp > 0:
-
                     tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
                     latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
                     
@@ -328,13 +327,12 @@ Based on this, what are your next orders?
                     print(f"⚠️ 잔고 최신화 실패 ({attempt + 1}/3회). 60초 후 다시 시도합니다...")
                     time.sleep(60)
             
-            # 3번 모두 실패했을 경우에만 최종적으로 취소 처리
             if not fresh_state:
                 print("🚨 3회 연속 잔고 최신화 실패! 안전을 위해 이번 턴 신규 진입을 취소합니다.")
                 return
 
             tracked_long = float(account_state['long_position']['notional'])
-            actual_long_shield_coin = float(account_state['long_position']['contracts']) # 숏 방어막은 무조건 "코인 개수(Contracts)" 기준
+            actual_long_shield_coin = float(account_state['long_position']['contracts'])
             tracked_short_coin = float(account_state['short_position']['contracts'])
 
             for order in orders:
@@ -347,39 +345,33 @@ Based on this, what are your next orders?
 
                 if amount_usdt <= 0 or price <= 0: continue
                 
-                # 먼저 정상적인 코인 수량을 계산합니다.
                 amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
                 amount_coin = float(amount_coin_str)
                 if amount_coin <= 0: continue
                 
                 if pos_side == 'LONG' and side == 'buy':
-                    # 2000(MAX_LONG_SIZE_USDT)과 내 실시간 잔고 중 '더 작은 값'을 한도로 설정
                     dynamic_max_long = min(MAX_LONG_SIZE_USDT, float(account_state['usdt_total'])) 
                     if tracked_long + amount_usdt > dynamic_max_long:
                         amount_usdt = dynamic_max_long - tracked_long
                         if amount_usdt < 5.0:
                             print(f"⚠️ 롱 포지션 최대 한도(내 잔고: {dynamic_max_long:.2f} USDT)에 도달했습니다. 진입을 차단합니다.")
                             continue
-                        # USDT 한도가 깎였으므로 진입 수량(coin) 다시 계산
                         amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
                         amount_coin = float(amount_coin_str)
                         
                     tracked_long += amount_usdt
                     
-                # 숏 진입 (반드시 '이미 체결된' 롱 코인 개수 안에서만)
                 elif pos_side == 'SHORT' and side == 'sell':
                     if tracked_short_coin + amount_coin > actual_long_shield_coin: 
                         amount_coin = actual_long_shield_coin - tracked_short_coin
                         if amount_coin <= 0:
                             print(f"⚠️ 숏 포지션이 실제 롱 포지션(방패) 수량을 초과하려 합니다! 진입을 강제 차단합니다.")
                             continue
-                        # 수량이 깎였으므로 거래소 규격에 맞게 소수점 정밀도 다시 맞춤
                         amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_coin)
                         amount_coin = float(amount_coin_str)
                         
                     tracked_short_coin += amount_coin
                 
-                # 허락되지 않은 방향의 환각 주문이 들어오면 무조건 차단
                 else:
                     print(f"⚠️ AI가 신규 진입 로직에서 허가되지 않은 방향({pos_side} {side.upper()})의 주문을 시도했습니다! (강제 차단)")
                     continue
@@ -400,20 +392,24 @@ Based on this, what are your next orders?
             print(f"❌ 주문 실행 중 예기치 않은 오류 발생: {e}")
 
     def run(self):
-        print("🚀 자동매매 봇 초기화 완료. [수학적 절대 방어 모드] 메인 루프를 시작합니다.")
+        print("🚀 자동매매 봇 초기화 완료. [수학적 절대 방어 모드 + 멀티 타임프레임] 메인 루프를 시작합니다.")
         while True:
             try:
-                print(f"\n--- ☀️ AI 기상 및 시장 분석 시작 ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---")
+                print(f"\n--- ☀️ AI 기상 및 멀티 타임프레임 시장 분석 시작 ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---")
                 
-                df = self.fetch_data()
-                if df is None or df.empty:
-                    time.sleep(60); continue # 데이터 수집 실패 시 60초 후 재시도
+                # 1. 8시간 봉(진입용)과 1일 봉(추세용) 데이터 수집
+                df_exec = self.fetch_data(TIMEFRAME_EXEC)
+                df_trend = self.fetch_data(TIMEFRAME_TREND)
+                
+                if df_exec is None or df_exec.empty or df_trend is None or df_trend.empty:
+                    time.sleep(60); continue 
                 
                 account_state = self.get_account_state()
                 if account_state is None:
-                    time.sleep(60); continue # 잔고 최신화 실패 시 60초 후 재시도
+                    time.sleep(60); continue 
                 
-                signal = self.get_gemini_signal(df, account_state)
+                # 2. AI에게 두 가지 데이터를 모두 넘겨줌
+                signal = self.get_gemini_signal(df_exec, df_trend, account_state)
                 self.execute_orders(signal, account_state)
                 
                 print(f"💤 {LOOP_INTERVAL_MINUTES}분 동안 대기(수면) 모드 진입...")
