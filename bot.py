@@ -14,6 +14,7 @@ load_dotenv()
 SYMBOL = 'LTC/USDT:USDT'
 TIMEFRAME_EXEC = '8h'  # 매매 진입 타점용 (실행 프레임)
 TIMEFRAME_TREND = '1d' # 큰 추세 확인용 (트렌드 프레임)
+TIMEFRAME_MACRO = '1w' # 초거시적 추세 확인용 (매크로 프레임 - 주봉)
 LEVERAGE = 5
 MAX_LONG_SIZE_USDT = 2000
 LOOP_INTERVAL_MINUTES = 30
@@ -115,15 +116,16 @@ class AutoTrader:
             print(f"❌ 계좌 상태 가져오기 오류: {e}")
             return None
 
-    def get_gemini_signal(self, df_exec, df_trend, account_state):
-        print("🤖 Gemini 3.1 Pro 모델로 멀티 타임프레임(1D + 8H) 시장 데이터 분석 중...")
-        data_exec = df_exec.tail(90).to_dict(orient='records') # 8시간봉
-        data_trend = df_trend.tail(60).to_dict(orient='records') # 1일봉
+    def get_gemini_signal(self, df_exec, df_trend, df_macro, account_state):
+        print("🤖 Gemini 3.1 Pro 모델로 3단계 멀티 타임프레임(1W + 1D + 8H) 시장 데이터 분석 중...")
+        data_exec = df_exec.tail(100).to_dict(orient='records') # 8시간봉
+        data_trend = df_trend.tail(50).to_dict(orient='records') # 1일봉
+        data_macro = df_macro.tail(25).to_dict(orient='records') # 주봉
         
         max_allowed_long = min(MAX_LONG_SIZE_USDT, float(account_state['usdt_total']))
         
         system_instruction = f"""You are an advanced quantitative trading AI for Binance USD-M Futures.
-You are trading {SYMBOL} analyzing both {TIMEFRAME_TREND} (Macro Trend) and {TIMEFRAME_EXEC} (Execution) candles.
+You are trading {SYMBOL} analyzing {TIMEFRAME_MACRO} (Super Macro Trend), {TIMEFRAME_TREND} (Macro Trend) and {TIMEFRAME_EXEC} (Execution) candles.
 
 RULES AND CONSTRAINTS:
 1. Cross Margin with {LEVERAGE}x Leverage.
@@ -138,12 +140,12 @@ RULES AND CONSTRAINTS:
 10. Predict and provide take_profit for open positions.
 11. Provide only one take_profit for each position.
 12. Predict and place limit_order for entries.
-13. Align your {TIMEFRAME_EXEC} entries with the major trend identified in the {TIMEFRAME_TREND} data.
+13. Align your {TIMEFRAME_EXEC} entries with the major trends identified in BOTH {TIMEFRAME_MACRO} and {TIMEFRAME_TREND} data. Do not counter-trade the {TIMEFRAME_MACRO} trend.
 
 Respond ONLY with a valid JSON format (without markdown code blocks) representing your trading decision.
 Format:
 {{
-    "reasoning": "Explain your multi-timeframe analysis...",
+    "reasoning": "Explain your 3-stage multi-timeframe analysis...",
     "cancel_all_open_orders": true/false,
     "existing_position_tp": {{
         "LONG": <take profit limit for existing LONG position, or 0 if none>,
@@ -168,13 +170,16 @@ Long Position: Notional {account_state['long_position']['notional']} USDT at Avg
 Short Position: Notional {account_state['short_position']['notional']} USDT at Avg Price {account_state['short_position']['entryPrice']}
 Open Orders count: {len(account_state['open_orders'])}
 
+[SUPER MACRO TREND - Last prices from {TIMEFRAME_MACRO} Candles]
+{data_macro}
+
 [MACRO TREND - Last prices from {TIMEFRAME_TREND} Candles]
 {data_trend}
 
 [EXECUTION TIMING - Last prices from {TIMEFRAME_EXEC} Candles]
 {data_exec}
 
-Based on this multi-timeframe analysis, what are your next orders?
+Based on this 3-stage multi-timeframe analysis, what are your next orders?
 """
         try:
             response = self.client.models.generate_content(
@@ -198,7 +203,7 @@ Based on this multi-timeframe analysis, what are your next orders?
             decision = json.loads(signal_text)
             print(f"💡 AI 분석 결과 및 전략: {decision.get('reasoning')}")
 
-            if True: # 무조건 기존 주문 전체 취소!
+            if True: 
                 print("🗑️ 턴 시작: 모든 미체결 주문을 싹쓸이합니다...")
                 
                 cancel_success = False
@@ -392,24 +397,25 @@ Based on this multi-timeframe analysis, what are your next orders?
             print(f"❌ 주문 실행 중 예기치 않은 오류 발생: {e}")
 
     def run(self):
-        print("🚀 자동매매 봇 초기화 완료. [수학적 절대 방어 모드 + 멀티 타임프레임] 메인 루프를 시작합니다.")
+        print("🚀 자동매매 봇 초기화 완료. [수학적 절대 방어 모드 + 3단계 멀티 타임프레임] 메인 루프를 시작합니다.")
         while True:
             try:
-                print(f"\n--- ☀️ AI 기상 및 멀티 타임프레임 시장 분석 시작 ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---")
+                print(f"\n--- ☀️ AI 기상 및 3단계 시장 분석 시작 ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---")
                 
-                # 1. 8시간 봉(진입용)과 1일 봉(추세용) 데이터 수집
+                # 1. 실행(8h), 거시(1d), 초거시(1w) 데이터 차례로 수집
                 df_exec = self.fetch_data(TIMEFRAME_EXEC)
                 df_trend = self.fetch_data(TIMEFRAME_TREND)
+                df_macro = self.fetch_data(TIMEFRAME_MACRO)
                 
-                if df_exec is None or df_exec.empty or df_trend is None or df_trend.empty:
+                if df_exec is None or df_exec.empty or df_trend is None or df_trend.empty or df_macro is None or df_macro.empty:
                     time.sleep(60); continue 
                 
                 account_state = self.get_account_state()
                 if account_state is None:
                     time.sleep(60); continue 
                 
-                # 2. AI에게 두 가지 데이터를 모두 넘겨줌
-                signal = self.get_gemini_signal(df_exec, df_trend, account_state)
+                # 2. AI에게 3가지 시야의 데이터를 모두 전달
+                signal = self.get_gemini_signal(df_exec, df_trend, df_macro, account_state)
                 self.execute_orders(signal, account_state)
                 
                 print(f"💤 {LOOP_INTERVAL_MINUTES}분 동안 대기(수면) 모드 진입...")
