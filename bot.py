@@ -118,9 +118,9 @@ class AutoTrader:
 
     def get_gemini_signal(self, df_exec, df_trend, df_macro, account_state):
         print("🤖 Gemini 3.1 Pro 모델로 3단계 멀티 타임프레임(1W + 1D + 8H) 시장 데이터 분석 중...")
-        data_exec = df_exec.tail(100).to_dict(orient='records') # 8시간봉
-        data_trend = df_trend.tail(50).to_dict(orient='records') # 1일봉
-        data_macro = df_macro.tail(25).to_dict(orient='records') # 주봉
+        data_exec = df_exec.tail(100).to_dict(orient='records') 
+        data_trend = df_trend.tail(50).to_dict(orient='records') 
+        data_macro = df_macro.tail(25).to_dict(orient='records') 
         
         max_allowed_long = min(MAX_LONG_SIZE_USDT, float(account_state['usdt_total']))
         
@@ -243,6 +243,10 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 long_contracts = float(long_pos.get('contracts', 0)) if long_pos else 0.0
                 short_contracts = float(short_pos.get('contracts', 0)) if short_pos else 0.0
                 
+                # 진입 평단가 추출 (손절 방어용)
+                long_entry_price = float(long_pos.get('entryPrice', 0)) if long_pos else 0.0
+                short_entry_price = float(short_pos.get('entryPrice', 0)) if short_pos else 0.0
+                
                 pending_short_amount_coin = 0.0
                 simulated_long_shield_coin = long_contracts
                 simulated_tracked_short_coin = short_contracts
@@ -272,50 +276,58 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 s_tp = float(existing_tp.get('SHORT') or 0)
                 
                 # ==========================================
-                # 🛡️ 롱 수학적 익절 
+                # 🛡️ 롱 수학적 익절 (손절 강제 차단 포함)
                 # ==========================================
                 amount_to_close_long = long_contracts - short_contracts - pending_short_amount_coin
                 amount_to_close_long_str = self.exchange.amount_to_precision(SYMBOL, amount_to_close_long) if amount_to_close_long > 0 else "0"
                 amount_to_close_long_clean = float(amount_to_close_long_str)
 
                 if long_contracts > 0 and l_tp > 0:
-                    if amount_to_close_long_clean > 0:
-                        tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
-                        latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
-                        if l_tp > latest_price:
-                            try:
-                                self.exchange.create_order(symbol=SYMBOL, type='limit', side='sell', amount=amount_to_close_long_clean, price=float(tp_str), params={'positionSide': 'LONG'})
-                                print(f"🛡️ 롱 부분 익절(Limit) 장전: {tp_str} (총 {long_contracts}개 중 익절 {amount_to_close_long_clean}개 / 방어용 예비군 {short_contracts + pending_short_amount_coin}개 유지)")
-                            except Exception as e:
-                                print(f"⚠️ 롱 부분 익절 예약 실패: {e}")
-                        else:
-                            try:
-                                print(f"🚨 현재가({latest_price})가 롱 목표가({tp_str}) 돌파! 즉시 시장가 부분 익절합니다.")
-                                self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=amount_to_close_long_clean, params={'positionSide': 'LONG'})
-                            except Exception as e:
-                                print(f"⚠️ 롱 시장가 부분 익절 실패: {e}")
+                    # [핵심 방어 로직] 롱 목표가가 내 평단가보다 낮거나 같으면 무조건 거부!
+                    if l_tp <= long_entry_price:
+                        print(f"🚨 [강제 차단] AI가 롱 진입가({long_entry_price})보다 낮거나 같은 목표가({l_tp})를 제시했습니다!")
                     else:
-                        print(f"🛡️ 롱 수량({long_contracts}개)이 현재 숏+대기 숏({short_contracts + pending_short_amount_coin}개)과 같거나 적습니다! 숏 방어를 위해 롱 익절(TP)을 보류합니다.")
+                        if amount_to_close_long_clean > 0:
+                            tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
+                            latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
+                            if l_tp > latest_price:
+                                try:
+                                    self.exchange.create_order(symbol=SYMBOL, type='limit', side='sell', amount=amount_to_close_long_clean, price=float(tp_str), params={'positionSide': 'LONG'})
+                                    print(f"🛡️ 롱 부분 익절(Limit) 장전: {tp_str} (총 {long_contracts}개 중 익절 {amount_to_close_long_clean}개 / 방어용 예비군 {short_contracts + pending_short_amount_coin}개 유지)")
+                                except Exception as e:
+                                    print(f"⚠️ 롱 부분 익절 예약 실패: {e}")
+                            else:
+                                try:
+                                    print(f"🚨 현재가({latest_price})가 롱 목표가({tp_str}) 돌파! 즉시 시장가 부분 익절합니다.")
+                                    self.exchange.create_order(symbol=SYMBOL, type='market', side='sell', amount=amount_to_close_long_clean, params={'positionSide': 'LONG'})
+                                except Exception as e:
+                                    print(f"⚠️ 롱 시장가 부분 익절 실패: {e}")
+                        else:
+                            print(f"🛡️ 롱 수량({long_contracts}개)이 현재 숏+대기 숏({short_contracts + pending_short_amount_coin}개)과 같거나 적습니다! 숏 방어를 위해 롱 익절(TP)을 보류합니다.")
                 
                 # ==========================================
-                # 🛡️ 숏 100% 전량 익절
+                # 🛡️ 숏 100% 전량 익절 (손절 강제 차단 포함)
                 # ==========================================
                 if short_contracts > 0 and s_tp > 0:
-                    tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
-                    latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
-                    
-                    if s_tp < latest_price:
-                        try:
-                            self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=None, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
-                            print(f"💰 숏 포지션 100% 전량 익절(TP) 장전 완료: {tp_str}")
-                        except Exception as e:
-                            print(f"⚠️ 숏 포지션 TP 복구 실패: {e}")
+                    # [핵심 방어 로직] 숏 목표가가 내 평단가보다 높거나 같으면 무조건 거부!
+                    if s_tp >= short_entry_price:
+                        print(f"🚨 [강제 차단] AI가 숏 진입가({short_entry_price})보다 높거나 같은 목표가({s_tp})를 제시했습니다!")
                     else:
-                        try:
-                            print(f"🚨 현재가({latest_price})가 숏 목표가({tp_str}) 돌파! 즉시 시장가로 100% 익절합니다.")
-                            self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=short_contracts, params={'positionSide': 'SHORT'})
-                        except Exception as e:
-                            print(f"⚠️ 숏 시장가 익절 실패: {e}")
+                        tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
+                        latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
+                        
+                        if s_tp < latest_price:
+                            try:
+                                self.exchange.create_order(symbol=SYMBOL, type='TAKE_PROFIT_MARKET', side='buy', amount=None, price=None, params={'positionSide': 'SHORT', 'stopPrice': float(tp_str), 'closePosition': True})
+                                print(f"💰 숏 포지션 100% 전량 익절(TP) 장전 완료: {tp_str}")
+                            except Exception as e:
+                                print(f"⚠️ 숏 포지션 TP 복구 실패: {e}")
+                        else:
+                            try:
+                                print(f"🚨 현재가({latest_price})가 숏 목표가({tp_str}) 돌파! 즉시 시장가로 100% 익절합니다.")
+                                self.exchange.create_order(symbol=SYMBOL, type='market', side='buy', amount=short_contracts, params={'positionSide': 'SHORT'})
+                            except Exception as e:
+                                print(f"⚠️ 숏 시장가 익절 실패: {e}")
 
             orders = decision.get('orders') or []
             if not orders:
@@ -397,12 +409,11 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
             print(f"❌ 주문 실행 중 예기치 않은 오류 발생: {e}")
 
     def run(self):
-        print("🚀 자동매매 봇 초기화 완료. [수학적 절대 방어 모드 + 3단계 멀티 타임프레임] 메인 루프를 시작합니다.")
+        print("🚀 자동매매 봇 초기화 완료. 메인 루프를 시작합니다.")
         while True:
             try:
                 print(f"\n--- ☀️ AI 기상 및 3단계 시장 분석 시작 ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---")
                 
-                # 1. 실행(8h), 거시(1d), 초거시(1w) 데이터 차례로 수집
                 df_exec = self.fetch_data(TIMEFRAME_EXEC)
                 df_trend = self.fetch_data(TIMEFRAME_TREND)
                 df_macro = self.fetch_data(TIMEFRAME_MACRO)
@@ -414,7 +425,6 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 if account_state is None:
                     time.sleep(60); continue 
                 
-                # 2. AI에게 3가지 시야의 데이터를 모두 전달
                 signal = self.get_gemini_signal(df_exec, df_trend, df_macro, account_state)
                 self.execute_orders(signal, account_state)
                 
