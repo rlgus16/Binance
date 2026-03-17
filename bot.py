@@ -272,6 +272,11 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                             
                             if simulated_tracked_short_coin + order_coin > simulated_long_shield_coin:
                                 order_coin = simulated_long_shield_coin - simulated_tracked_short_coin
+                                
+                                # 깎고 남은 찌꺼기 수량이 0.001 미만이면 주문 패스!
+                                if order_coin < 0.001: 
+                                    continue
+                                
                                 capped_coin_str = self.exchange.amount_to_precision(SYMBOL, order_coin)
                                 order_coin = float(capped_coin_str)
                             
@@ -288,6 +293,11 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 # 🛡️ 롱 수학적 익절 (손절 강제 차단 포함)
                 # ==========================================
                 amount_to_close_long = long_contracts - short_contracts - pending_short_amount_coin
+                
+                # 수량이 0.001보다 작으면 그냥 0으로 무시!
+                if amount_to_close_long > 0 and amount_to_close_long < 0.001:
+                    amount_to_close_long = 0.0
+                    
                 amount_to_close_long_str = self.exchange.amount_to_precision(SYMBOL, amount_to_close_long) if amount_to_close_long > 0 else "0"
                 amount_to_close_long_clean = float(amount_to_close_long_str)
 
@@ -390,9 +400,12 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 elif pos_side == 'SHORT' and side == 'sell':
                     if tracked_short_coin + amount_coin > actual_long_shield_coin: 
                         amount_coin = actual_long_shield_coin - tracked_short_coin
-                        if amount_coin <= 0:
-                            print(f"⚠️ 숏 포지션이 실제 롱 포지션(방패) 수량을 초과하려 합니다! 진입을 강제 차단합니다.")
+                        
+                        # 방패 한도에 막혀 남은 수량이 0.001 미만이면 주문 차단!
+                        if amount_coin < 0.001:
+                            print("⚠️ 숏 잔여 수량이 0.001 미만이라 진입을 차단합니다.")
                             continue
+                            
                         amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_coin)
                         amount_coin = float(amount_coin_str)
                         
