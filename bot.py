@@ -17,7 +17,7 @@ TIMEFRAME_TREND = '1d' # 큰 추세 확인용 (트렌드 프레임)
 TIMEFRAME_MACRO = '1w' # 초거시적 추세 확인용 (매크로 프레임 - 주봉)
 LEVERAGE = 5
 MAX_LONG_SIZE_USDT = 2500
-LOOP_INTERVAL_MINUTES = 30
+LOOP_INTERVAL_MINUTES = 60
 
 class AutoTrader:
     def __init__(self):
@@ -191,25 +191,42 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 cancel_success = False
                 for _ in range(3):
                     try:
-                        # 1. 바이낸스에 전체 취소 명령 전송
                         self.exchange.cancel_all_orders(SYMBOL)
                         time.sleep(2) 
                         
-                        # 2. 🔥 일반 주문과 '숨어있는 조건부(TP/SL) 주문'을 모두 가져옵니다
                         leftovers = self.exchange.fetch_open_orders(SYMBOL)
                         stop_leftovers = self.exchange.fetch_open_orders(SYMBOL, params={'stop': True})
-                        
                         all_leftovers = leftovers + stop_leftovers
                         
-                        # 3. 발견된 찌꺼기 주문들을 하나씩 확인사살
+                        # 3. 발견된 찌꺼기 주문들을 하나씩 확인사살 (똑똑한 삭제 로직)
                         for leftover in all_leftovers:
                             try:
-                                self.exchange.cancel_order(leftover['id'], SYMBOL)
-                                print(f"🗑️ 끈질긴 주문 개별 삭제 완료 (ID: {leftover['id']}, 타입: {leftover.get('type')})")
+                                # 이 주문이 '조건부(TP/SL)' 주문인지 판단
+                                is_stop = leftover.get('type') in ['stop_market', 'take_profit_market', 'stop', 'take_profit'] or leftover.get('stopPrice') is not None
+                                
+                                # 조건부면 stop=True를 달아서 삭제, 일반이면 그냥 삭제
+                                if is_stop:
+                                    self.exchange.cancel_order(leftover['id'], SYMBOL, params={'stop': True})
+                                else:
+                                    self.exchange.cancel_order(leftover['id'], SYMBOL)
+                                    
+                                print(f"🗑️ 끈질긴 주문 개별 삭제 완료 (ID: {leftover['id']})")
                             except Exception as ex:
-                                print(f"⚠️ 개별 취소 에러 발생 (최종 검증으로 넘어감): {ex}")
+                                print(f"⚠️ 개별 취소 에러 발생: {ex}")
                                 
                         time.sleep(2) 
+                        
+                        final_check = self.exchange.fetch_open_orders(SYMBOL)
+                        final_stop_check = self.exchange.fetch_open_orders(SYMBOL, params={'stop': True})
+                        
+                        if len(final_check) > 0 or len(final_stop_check) > 0:
+                            raise Exception(f"여전히 {len(final_check) + len(final_stop_check)}개의 주문이 지워지지 않고 살아있습니다!")
+                                
+                        cancel_success = True
+                        break
+                    except Exception as e:
+                        print(f"⚠️ 기존 주문 취소/확인 실패 (60초 후 재시도...): {e}")
+                        time.sleep(60)
                         
                         # 4. 최종 검증 (일반 + 조건부 모두 확인)
                         final_check = self.exchange.fetch_open_orders(SYMBOL)
