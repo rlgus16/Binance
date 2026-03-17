@@ -117,51 +117,33 @@ class AutoTrader:
             return None
 
     def get_gemini_signal(self, df_exec, df_trend, df_macro, account_state):
-        print("🤖 Gemini 3.1 Pro 모델로 시장 데이터 분석 중...")
-        data_exec = df_exec.tail(100).to_dict(orient='records') 
-        data_trend = df_trend.tail(60).to_dict(orient='records') 
-        data_macro = df_macro.tail(25).to_dict(orient='records') 
+        print("🤖 Gemini 모델로 데이터 분석 중...")
+        
+        cols_to_keep = ['open', 'high', 'low', 'close', 'volume', 'MACD_12_26_9', 'RSI_14', 'SMA_20', 'EMA_50']
+        
+        data_exec = df_exec[cols_to_keep].tail(50).round(3).to_dict(orient='records') 
+        data_trend = df_trend[cols_to_keep].tail(30).round(3).to_dict(orient='records') 
+        data_macro = df_macro[cols_to_keep].tail(25).round(3).to_dict(orient='records')
         
         max_allowed_long = min(MAX_LONG_SIZE_USDT, float(account_state['usdt_total']))
         
-        system_instruction = f"""You are an advanced quantitative trading AI for Binance USD-M Futures.
-You are trading {SYMBOL} analyzing {TIMEFRAME_MACRO} (Super Macro Trend), {TIMEFRAME_TREND} (Macro Trend) and {TIMEFRAME_EXEC} (Execution) candles.
+        system_instruction = f"""Quant trading AI for {SYMBOL} (Binance Futures).
 
 RULES AND CONSTRAINTS:
-1. Cross Margin with {LEVERAGE}x Leverage.
-2. Hedge Mode is ON. Open LONG and SHORT positions to maximize profit.
-3. The MAXIMUM total LONG position size must NEVER exceed {max_allowed_long} USDT (notional).
-4. The TOTAL SHORT position size must NEVER exceed the CURRENT LONG NOTIONAL size at all times.
-5. LONG doesn't need hedging. Free_balance is abundant for LONG.
-6. SHORT must use LONG as a shield.
-7. NEVER execute a STOP_LOSS order.
-8. You can average down to maximize profit.
-9. Exits MUST rely on take_profit orders hitting their targets.
-10. Predict and provide take_profit for open positions.
-11. Provide only one take_profit for each position.
-12. Predict and place limit_order for entries.
-13. Align your {TIMEFRAME_EXEC} entries with the major trends identified in BOTH {TIMEFRAME_MACRO} and {TIMEFRAME_TREND} data. Do not counter-trade the {TIMEFRAME_MACRO} trend.
+1. Mode: Hedge Mode ON, Cross Margin, {LEVERAGE}x Leverage.
+2. Risk: Max LONG {max_allowed_long} USDT. SHORT notional MUST <= LONG notional.
+3. Use LONG as a shield for SHORT. LONG doesn't need hedging. Free_balance is abundant for LONG.
+4. Strategy: NO STOP_LOSS. Use averaging down. Exit via TAKE_PROFIT only.
+5. Orders: Use limit orders for entries. Always provide TP for each position.
+6. Trend: Follow {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} trends. NEVER counter-trade {TIMEFRAME_MACRO} trend.
 
-Respond ONLY with a valid JSON format (without markdown code blocks) representing your trading decision.
-Format:
+Respond ONLY with JSON:
 {{
-    "reasoning": "Explain your 3-stage multi-timeframe analysis...",
+    "reasoning": "Brief analysis...",
     "cancel_all_open_orders": true/false,
-    "existing_position_tp": {{
-        "LONG": <take profit limit for existing LONG position, or 0 if none>,
-        "SHORT": <take profit limit for existing SHORT position, or 0 if none>
-    }},
-    "orders": [
-        {{
-            "side": "buy",
-            "positionSide": "LONG",
-            "type": "limit",
-            "amount_usdt": <amount in USDT>,
-            "price": <entry price limit>
-        }}
-    ]
-}}
-"""
+    "existing_position_tp": {{"LONG": price, "SHORT": price}},
+    "orders": [{{"side": "buy/sell", "positionSide": "LONG/SHORT", "type": "limit", "amount_usdt": val, "price": val}}]
+}}"""
         prompt = f"""
 Current Account State:
 USDT Free: {account_state['usdt_free']}
@@ -183,7 +165,7 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
 """
         try:
             response = self.client.models.generate_content(
-                model='gemini-1.5-pro',
+                model='gemini-2.5-pro',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
