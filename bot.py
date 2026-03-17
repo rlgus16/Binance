@@ -1,3 +1,4 @@
+import requests
 import ccxt
 import os
 import time
@@ -24,6 +25,8 @@ class AutoTrader:
         binance_api_key = os.getenv("BINANCE_API_KEY")
         binance_secret_key = os.getenv("BINANCE_SECRET_KEY")
         gemini_api_key = os.getenv("GEMINI_API_KEY")
+        self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
         if not binance_api_key or not binance_secret_key:
             raise ValueError("🚨 .env 파일에 바이낸스 API 키가 누락되었습니다.")
@@ -43,6 +46,15 @@ class AutoTrader:
 
         self.client = genai.Client(api_key=gemini_api_key)
         self.setup_exchange()
+
+    def send_telegram(self, message):
+        if not self.telegram_token or not self.telegram_chat_id:
+            return
+        url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
+        try:
+            requests.post(url, json={"chat_id": self.telegram_chat_id, "text": message})
+        except Exception as e:
+            print(f"⚠️ 텔레그램 전송 실패: {e}")
 
     def setup_exchange(self):
         try:
@@ -304,7 +316,9 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 if long_contracts > 0 and l_tp > 0:
                     # [핵심 방어 로직] 롱 목표가가 내 평단가보다 낮거나 같으면 무조건 거부!
                     if l_tp <= long_entry_price:
-                        print(f"🚨 [강제 차단] AI가 롱 진입가({long_entry_price})보다 낮거나 같은 목표가({l_tp})를 제시했습니다!")
+                        warn_msg = f"🚨 [강제 차단] AI가 롱 진입가({long_entry_price})보다 낮거나 같은 목표가({l_tp})를 제시했습니다!"
+                        print(warn_msg)
+                        self.send_telegram(warn_msg)
                     else:
                         if amount_to_close_long_clean > 0:
                             tp_str = self.exchange.price_to_precision(SYMBOL, l_tp)
@@ -426,9 +440,12 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                         symbol=SYMBOL, type='limit', side=side,
                         amount=amount_coin, price=float(price_str), params={'positionSide': pos_side}
                     )
-                    print(f"✅ 진입(Limit) 전송 완료 (주문번호: {entry_val['id']})")
+                    msg = f"✅ [신규 진입]\n포지션: {pos_side}\n방향: {side.upper()}\n수량: {amount_coin} LTC\n가격: {price_str} USDT"
+                    print(msg)
+                    self.send_telegram(msg)
                 except Exception as e:
                     print(f"⚠️ 진입 주문 에러: {e}")
+                    self.send_telegram(f"🚨 진입 주문 에러 발생: {e}")
 
         except Exception as e:
             print(f"❌ 주문 실행 중 예기치 않은 오류 발생: {e}")
