@@ -191,24 +191,34 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 cancel_success = False
                 for _ in range(3):
                     try:
+                        # 1. 바이낸스에 전체 취소 명령 전송
                         self.exchange.cancel_all_orders(SYMBOL)
                         time.sleep(2) 
                         
+                        # 2. 🔥 일반 주문과 '숨어있는 조건부(TP/SL) 주문'을 모두 가져옵니다
                         leftovers = self.exchange.fetch_open_orders(SYMBOL)
-                        for leftover in leftovers:
+                        stop_leftovers = self.exchange.fetch_open_orders(SYMBOL, params={'stop': True})
+                        
+                        all_leftovers = leftovers + stop_leftovers
+                        
+                        # 3. 발견된 찌꺼기 주문들을 하나씩 확인사살
+                        for leftover in all_leftovers:
                             try:
                                 self.exchange.cancel_order(leftover['id'], SYMBOL)
-                                print(f"🗑️ 끈질긴 TP 주문 개별 삭제 완료 (ID: {leftover['id']})")
+                                print(f"🗑️ 끈질긴 주문 개별 삭제 완료 (ID: {leftover['id']}, 타입: {leftover.get('type')})")
                             except Exception as ex:
                                 print(f"⚠️ 개별 취소 에러 발생 (최종 검증으로 넘어감): {ex}")
                                 
                         time.sleep(2) 
+                        
+                        # 4. 최종 검증 (일반 + 조건부 모두 확인)
                         final_check = self.exchange.fetch_open_orders(SYMBOL)
-                        if len(final_check) > 0:
-                            raise Exception(f"여전히 {len(final_check)}개의 주문이 지워지지 않고 살아있습니다!")
+                        final_stop_check = self.exchange.fetch_open_orders(SYMBOL, params={'stop': True})
+                        
+                        if len(final_check) > 0 or len(final_stop_check) > 0:
+                            raise Exception(f"여전히 {len(final_check) + len(final_stop_check)}개의 주문이 지워지지 않고 살아있습니다!")
                                 
                         cancel_success = True
-                        time.sleep(2) 
                         break
                     except Exception as e:
                         print(f"⚠️ 기존 주문 취소/확인 실패 (60초 후 재시도...): {e}")
