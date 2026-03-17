@@ -134,7 +134,7 @@ RULES AND CONSTRAINTS:
 2. Risk: Max LONG {max_allowed_long} USDT. SHORT notional MUST <= LONG notional.
 3. Use LONG as a shield for SHORT. LONG doesn't need hedging. Free_balance is abundant for LONG.
 4. Strategy: NO STOP_LOSS. Use averaging down. Exit via TAKE_PROFIT only.
-5. Orders: Use limit orders for entries. Always provide TP for each position.
+5. Orders: Use limit orders for entries. Minimum order amount > 20 USDT. Always provide TP for each position.
 6. Trend: Follow {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} trends. NEVER counter-trade {TIMEFRAME_MACRO} trend.
 
 Respond ONLY with JSON:
@@ -165,7 +165,7 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
 """
         try:
             response = self.client.models.generate_content(
-                model='gemini-2.5-pro',
+                model='gemini-2.5-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -376,6 +376,9 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                     continue
 
                 price_str = self.exchange.price_to_precision(SYMBOL, price)
+                if amount_coin * float(price_str) < 20.0:
+                    print(f"⚠️ 주문 금액 너무 작음 차단: {amount_coin * float(price_str):.2f} USDT (바이낸스 최소 기준 20 USDT 미만). 주문을 건너뜁니다.")
+                    continue
                 print(f"🎯 신규 액션: {side.upper()} {amount_coin} {SYMBOL} 진입가 {price_str} / 포지션: {pos_side}")
                 
                 try:
