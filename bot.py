@@ -16,7 +16,7 @@ TIMEFRAME_EXEC = '8h'  # 매매 진입 타점용 (실행 프레임)
 TIMEFRAME_TREND = '1d' # 큰 추세 확인용 (트렌드 프레임)
 TIMEFRAME_MACRO = '1w' # 초거시적 추세 확인용 (매크로 프레임 - 주봉)
 LEVERAGE = 5
-MAX_LONG_SIZE_USDT = 2000
+MAX_LONG_SIZE_USDT = 2500
 LOOP_INTERVAL_MINUTES = 30
 
 class AutoTrader:
@@ -117,9 +117,9 @@ class AutoTrader:
             return None
 
     def get_gemini_signal(self, df_exec, df_trend, df_macro, account_state):
-        print("🤖 Gemini 3.1 Pro 모델로 3단계 멀티 타임프레임(1W + 1D + 8H) 시장 데이터 분석 중...")
+        print("🤖 Gemini 3.1 Pro 모델로 시장 데이터 분석 중...")
         data_exec = df_exec.tail(100).to_dict(orient='records') 
-        data_trend = df_trend.tail(50).to_dict(orient='records') 
+        data_trend = df_trend.tail(60).to_dict(orient='records') 
         data_macro = df_macro.tail(25).to_dict(orient='records') 
         
         max_allowed_long = min(MAX_LONG_SIZE_USDT, float(account_state['usdt_total']))
@@ -183,7 +183,7 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
 """
         try:
             response = self.client.models.generate_content(
-                model='gemini-3.1-pro-preview',
+                model='gemini-1.5-pro',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
