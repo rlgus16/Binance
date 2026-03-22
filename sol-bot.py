@@ -4,7 +4,7 @@ import os
 import time
 import json
 import pandas as pd
-import pandas_ta as ta
+import pandas_ta_classic as ta
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -12,12 +12,12 @@ from google.genai import types
 load_dotenv()
 
 # Configuration
-SYMBOL = 'LTC/USDT:USDT'
-TIMEFRAME_EXEC = '8h'  # 매매 진입 타점용 (실행 프레임)
+SYMBOL = 'SOL/USDT:USDT'
+TIMEFRAME_EXEC = '4h'  # 매매 진입 타점용 (실행 프레임)
 TIMEFRAME_TREND = '1d' # 큰 추세 확인용 (트렌드 프레임)
 TIMEFRAME_MACRO = '1w' # 초거시적 추세 확인용 (매크로 프레임 - 주봉)
 LEVERAGE = 5
-MAX_LONG_SIZE_USDT = 2500
+MAX_LONG_SIZE_USDT = 1500
 LOOP_INTERVAL_MINUTES = 60
 
 class AutoTrader:
@@ -151,7 +151,7 @@ RULES AND CONSTRAINTS:
 
 Respond ONLY with JSON:
 {{
-    "reasoning": "Brief analysis...",
+    "reasoning": "One sentence analysis",
     "cancel_all_open_orders": true/false,
     "existing_position_tp": {{"LONG": price, "SHORT": price}},
     "orders": [{{"side": "buy/sell", "positionSide": "LONG/SHORT", "type": "limit", "amount_usdt": val, "price": val}}]
@@ -177,7 +177,7 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
 """
         try:
             response = self.client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-3.1-flash-lite-preview',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -440,7 +440,7 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                         symbol=SYMBOL, type='limit', side=side,
                         amount=amount_coin, price=float(price_str), params={'positionSide': pos_side}
                     )
-                    msg = f"✅ [신규 진입]\n포지션: {pos_side}\n방향: {side.upper()}\n수량: {amount_coin} LTC\n가격: {price_str} USDT"
+                    msg = f"✅ [신규 진입]\n포지션: {pos_side}\n방향: {side.upper()}\n수량: {amount_coin} SOL\n가격: {price_str} USDT"
                     print(msg)
                     self.send_telegram(msg)
                 except Exception as e:
