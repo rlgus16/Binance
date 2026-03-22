@@ -15,7 +15,7 @@ load_dotenv()
 SYMBOL = 'LTC/USDT:USDT'
 TIMEFRAME_EXEC = '4h'  # 매매 진입 타점용 (실행 프레임)
 TIMEFRAME_TREND = '1d' # 큰 추세 확인용 (트렌드 프레임)
-TIMEFRAME_MACRO = '1w' # 초거시적 추세 확인용 (매크로 프레임 - 주봉)
+TIMEFRAME_MACRO = '1w' # 초거시적 추세 확인용 (매크로 프레임)
 LEVERAGE = 5
 MAX_LONG_SIZE_USDT = 2500
 LOOP_INTERVAL_MINUTES = 60
@@ -146,7 +146,7 @@ RULES AND CONSTRAINTS:
 2. Risk: Max LONG {max_allowed_long} USDT. SHORT notional MUST <= LONG notional.
 3. Use LONG as a shield for SHORT. LONG doesn't need hedging. Free_balance is abundant for LONG.
 4. Strategy: NO STOP_LOSS. Use averaging down. Exit via TAKE_PROFIT only.
-5. Orders: Use limit orders for entries. Minimum order amount > 20 USDT. Always provide TP for each position.
+5. Orders: Use limit orders for entries. Minimum order amount > 20 USDT. Set at least one TAKE_PROFIT for open positions.
 6. Trend: Follow {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} trends. NEVER counter-trade {TIMEFRAME_MACRO} trend.
 
 Respond ONLY with JSON:
