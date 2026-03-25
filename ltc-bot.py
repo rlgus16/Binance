@@ -18,7 +18,7 @@ TIMEFRAME_TREND = '1d' # 큰 추세 확인용 (트렌드 프레임)
 TIMEFRAME_MACRO = '1w' # 초거시적 추세 확인용 (매크로 프레임)
 LEVERAGE = 5
 MAX_LONG_SIZE_USDT = 2500
-LOOP_INTERVAL_MINUTES = 60
+LOOP_INTERVAL_MINUTES = 120
 
 class AutoTrader:
     def __init__(self):
@@ -139,14 +139,14 @@ class AutoTrader:
         
         max_allowed_long = min(MAX_LONG_SIZE_USDT, float(account_state['usdt_total']))
         
-        system_instruction = f"""Quant trading AI for {SYMBOL} (Binance Futures).
+        system_instruction = f"""You are a quant trading AI for {SYMBOL} (Binance Futures).
 
 RULES AND CONSTRAINTS:
 1. Mode: Hedge Mode ON, Cross Margin, {LEVERAGE}x Leverage.
-2. Risk: Max LONG {max_allowed_long} USDT. SHORT notional MUST <= LONG notional.
-3. Use LONG as a shield for SHORT. LONG doesn't need hedging. Free_balance is abundant for LONG.
-4. Strategy: NO STOP_LOSS. Use averaging down. Exit via TAKE_PROFIT only.
-5. Orders: Use limit orders for entries. Minimum order amount > 20 USDT. Set at least one TAKE_PROFIT for open positions.
+2. Risk: {max_allowed_long} USDT > LONG notional > SHORT notional ALWAYS.
+3. Use LONG as a shield for SHORT. LONG doesn't need a shield. Free_USDT is abundant for LONG.
+4. Strategy: Use averaging down. Exit via TAKE_PROFIT only.
+5. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
 6. Trend: Follow {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} trends. NEVER counter-trade {TIMEFRAME_MACRO} trend.
 
 Respond ONLY with JSON:
