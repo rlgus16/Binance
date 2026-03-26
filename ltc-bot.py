@@ -343,6 +343,86 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                         except Exception as e:
                             print(f"⚠️ 숏 시장가 익절 실패: {e}")
 
+            # ==========================================
+            # 🚀 신규 진입 주문 실행
+            # ==========================================
+            orders = decision.get('orders') or []
+            if not orders:
+                print("🛑 실행할 새로운 진입 주문이 없습니다.")
+                return
+
+            fresh_state = None
+            for attempt in range(3):
+                fresh_state = self.get_account_state()
+                if fresh_state:
+                    account_state = fresh_state
+                    break
+                else:
+                    time.sleep(2)
+            
+            if not fresh_state:
+                return
+
+            tracked_long = float(account_state['long_position']['notional'])
+            actual_long_shield_coin = float(account_state['long_position']['contracts'])
+            tracked_short_coin = float(account_state['short_position']['contracts'])
+
+            for order in orders:
+                side = order.get('side', '').lower() 
+                pos_side = order.get('positionSide', '').upper()
+                
+                if not side or not pos_side: continue
+                amount_usdt = float(order.get('amount_usdt') or 0)
+                price = float(order.get('price') or 0)
+
+                if amount_usdt <= 0 or price <= 0: continue
+                
+                amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
+                amount_coin = float(amount_coin_str)
+                if amount_coin <= 0: continue
+                
+                if pos_side == 'LONG' and side == 'buy':
+                    dynamic_max_long = min(MAX_LONG_SIZE_USDT, float(account_state['usdt_total'])) 
+                    if tracked_long + amount_usdt > dynamic_max_long:
+                        amount_usdt = dynamic_max_long - tracked_long
+                        if amount_usdt < 5.0:
+                            continue
+                        amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_usdt / price)
+                        amount_coin = float(amount_coin_str)
+                        
+                    tracked_long += amount_usdt
+                    
+                elif pos_side == 'SHORT' and side == 'sell':
+                    if tracked_short_coin + amount_coin > actual_long_shield_coin: 
+                        amount_coin = actual_long_shield_coin - tracked_short_coin
+                        
+                        # 방패(롱) 한도에 막혀서 숏 진입 불가!
+                        if amount_coin < 0.001:
+                            print("⚠️ 숏 진입 불가: 현재 보유한 롱(방패) 수량이 부족합니다.")
+                            continue
+                            
+                        amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_coin)
+                        amount_coin = float(amount_coin_str)
+                        
+                    tracked_short_coin += amount_coin
+                
+                else:
+                    continue
+
+                price_str = self.exchange.price_to_precision(SYMBOL, price)
+                if amount_coin * float(price_str) < 20.0:
+                    continue
+                
+                print(f"🎯 신규 액션: {side.upper()} {amount_coin} {SYMBOL} 진입가 {price_str} / 포지션: {pos_side}")
+                
+                try:
+                    self.exchange.create_order(
+                        symbol=SYMBOL, type='limit', side=side,
+                        amount=amount_coin, price=float(price_str), params={'positionSide': pos_side}
+                    )
+                except Exception as e:
+                    print(f"⚠️ 진입 주문 전송 에러: {e}")
+
         except Exception as e:
             print(f"❌ 주문 실행 중 예기치 않은 오류 발생: {e}")
 
