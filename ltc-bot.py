@@ -131,7 +131,7 @@ class AutoTrader:
     def get_gemini_signal(self, df_exec, df_trend, df_macro, account_state):
         print("🤖 Gemini 모델로 데이터 분석 중...")
         
-        cols_to_keep = ['open', 'high', 'low', 'close', 'volume', 'MACD_12_26_9', 'RSI_14', 'SMA_20', 'EMA_50']
+        cols_to_keep = ['open', 'high', 'low', 'close', 'volume', 'MACD_12_26_9', 'RSI_14', 'SMA_20', 'EMA_50', 'BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']
         
         data_exec = df_exec[cols_to_keep].tail(50).round(3).to_dict(orient='records') 
         data_trend = df_trend[cols_to_keep].tail(30).round(3).to_dict(orient='records') 
