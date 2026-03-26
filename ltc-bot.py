@@ -142,20 +142,21 @@ class AutoTrader:
         system_instruction = f"""You are a quant trading AI for {SYMBOL} (Binance Futures).
 
 RULES AND CONSTRAINTS:
-1. Mode: Hedge Mode ON, Cross Margin, {LEVERAGE}x Leverage.
-2. Risk: {max_allowed_long} USDT > LONG notional > SHORT notional ALWAYS.
+1. Mode: Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
+2. Risk: {max_allowed_long} USDT >= LONG notional >= SHORT notional ALWAYS.
 3. Use LONG as a shield for SHORT. LONG doesn't need a shield. Free_USDT is abundant for LONG.
 4. Strategy: Use averaging down. Exit via TAKE_PROFIT only.
 5. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
-6. Trend: Follow {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} trends. NEVER counter-trade {TIMEFRAME_MACRO} trend.
+6. Analyze: {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trend to maximize profit.
+7. Open LONG and SHORT positions to maximize profit.
 
 Respond ONLY with JSON:
 {{
     "reasoning": "One sentence analysis",
-    "cancel_all_open_orders": true/false,
-    "existing_position_tp": {{"LONG": price, "SHORT": price}},
+    "existing_position_tp": {{"LONG": price (or 0 if none), "SHORT": price (or 0 if none)}},
     "orders": [{{"side": "buy/sell", "positionSide": "LONG/SHORT", "type": "limit", "amount_usdt": val, "price": val}}]
 }}"""
+
         prompt = f"""
 Current Account State:
 USDT Free: {account_state['usdt_free']}
