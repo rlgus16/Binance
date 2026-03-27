@@ -18,7 +18,7 @@ TIMEFRAME_TREND = '1d' # 큰 추세 확인용 (트렌드 프레임)
 TIMEFRAME_MACRO = '1w' # 초거시적 추세 확인용 (매크로 프레임)
 LEVERAGE = 5
 MAX_LONG_SIZE_USDT = 2500
-LOOP_INTERVAL_MINUTES = 120
+LOOP_INTERVAL_MINUTES = 60
 
 class AutoTrader:
     def __init__(self):
@@ -145,7 +145,7 @@ RULES AND CONSTRAINTS:
 1. Mode: Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
 2. Risk: {max_allowed_long} USDT >= LONG notional >= SHORT notional ALWAYS.
 3. Use LONG as a shield for SHORT. LONG doesn't need a shield. Free_USDT is abundant for LONG.
-4. Strategy: Use averaging down. Exit via TAKE_PROFIT only.
+4. Strategy: Use averaging down. Exit via TAKE_PROFIT only. Set TAKE_PROFIT target for at least one of the positions.
 5. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
 6. Analyze: {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trend to maximize profit.
 7. Open LONG and SHORT positions to maximize profit.
