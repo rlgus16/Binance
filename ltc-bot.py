@@ -241,6 +241,12 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
             decision = json.loads(signal_text)
             print(f"💡 AI 분석 결과 및 전략: {decision.get('reasoning')}")
 
+            # 거래소에서 코인별 최소 주문 수량을 직접 가져옵니다.
+            market = self.exchange.market(SYMBOL)
+            min_amount = market['limits']['amount']['min']
+            if min_amount is None:
+                min_amount = 0.001  # 만약 못 가져오면 기본값 설정
+
             # 취소 로직은 clear_all_open_orders()로 분리되었으므로 바로 포지션 확인으로 넘어갑니다.
             positions = self.exchange.fetch_positions([SYMBOL])
             long_pos = next((p for p in positions if p.get('side') == 'long'), None)
@@ -270,7 +276,7 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                         if simulated_tracked_short_coin + order_coin > simulated_long_shield_coin:
                             order_coin = simulated_long_shield_coin - simulated_tracked_short_coin
                             
-                            if order_coin < 0.001: 
+                            if order_coin < min_amount: 
                                 continue
                             
                             capped_coin_str = self.exchange.amount_to_precision(SYMBOL, order_coin)
@@ -290,7 +296,7 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
             # ==========================================
             amount_to_close_long = long_contracts - short_contracts - pending_short_amount_coin
             
-            if amount_to_close_long > 0 and amount_to_close_long < 0.001:
+            if amount_to_close_long > 0 and amount_to_close_long < min_amount:
                 amount_to_close_long = 0.0
                 
             amount_to_close_long_str = self.exchange.amount_to_precision(SYMBOL, amount_to_close_long) if amount_to_close_long > 0 else "0"
@@ -397,7 +403,7 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                         amount_coin = actual_long_shield_coin - tracked_short_coin
                         
                         # 방패(롱) 한도에 막혀서 숏 진입 불가!
-                        if amount_coin < 0.001:
+                        if amount_coin < min_amount:
                             print("⚠️ 숏 진입 불가: 현재 보유한 롱(방패) 수량이 부족합니다.")
                             continue
                             
