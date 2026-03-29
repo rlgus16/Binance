@@ -17,7 +17,6 @@ TIMEFRAME_EXEC = '4h'  # 매매 진입 타점용 (실행 프레임)
 TIMEFRAME_TREND = '1d' # 큰 추세 확인용 (트렌드 프레임)
 TIMEFRAME_MACRO = '1w' # 초거시적 추세 확인용 (매크로 프레임)
 LEVERAGE = 5
-MAX_LONG_SIZE_USDT = 2500
 LOOP_INTERVAL_MINUTES = 60
 
 class AutoTrader:
@@ -137,7 +136,7 @@ class AutoTrader:
         data_trend = df_trend[cols_to_keep].tail(30).round(3).to_dict(orient='records') 
         data_macro = df_macro[cols_to_keep].tail(25).round(3).to_dict(orient='records')
         
-        max_allowed_long = min(MAX_LONG_SIZE_USDT, float(account_state['usdt_total']))
+        max_allowed_long = float(account_state['usdt_total'])
         
         system_instruction = f"""You are a quant trading AI for {SYMBOL} (Binance Futures).
 
@@ -145,9 +144,9 @@ RULES AND CONSTRAINTS:
 1. Mode: Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
 2. Risk: {max_allowed_long} USDT >= LONG notional >= SHORT notional ALWAYS.
 3. Use LONG as a shield for SHORT. LONG doesn't need a shield. Free_USDT is abundant for LONG.
-4. Strategy: Use averaging down. Exit via TAKE_PROFIT only. Set TAKE_PROFIT target for at least one of the positions.
+4. Strategy: Use averaging down. Exit via TAKE_PROFIT only. Always set TAKE_PROFIT target for at least one of the positions.
 5. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
-6. Analyze: {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trend to maximize profit.
+6. Trend: Follow {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} trends. Do not counter-trade {TIMEFRAME_MACRO} trend.
 7. Open LONG and SHORT positions to maximize profit.
 
 Respond ONLY with JSON:
@@ -388,7 +387,7 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 if amount_coin <= 0: continue
                 
                 if pos_side == 'LONG' and side == 'buy':
-                    dynamic_max_long = min(MAX_LONG_SIZE_USDT, float(account_state['usdt_total'])) 
+                    dynamic_max_long = float(account_state['usdt_total']) 
                     if tracked_long + amount_usdt > dynamic_max_long:
                         amount_usdt = dynamic_max_long - tracked_long
                         if amount_usdt < 5.0:

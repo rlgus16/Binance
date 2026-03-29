@@ -1,5 +1,5 @@
 ccxt>=3.1.58
 pandas
-pandas_ta
+pandas_ta_classic
 google-genai>=0.3.0
 python-dotenv
