@@ -146,7 +146,8 @@ RULES AND CONSTRAINTS:
 3. LONG doesn't need hedging. Free_USDT is abundant for LONG.
 4. Strategy: Use averaging down. Exit via TAKE_PROFIT only. Always set TAKE_PROFIT target for at least one of the positions.
 5. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
-6. Analyze {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to maximize profit.
+6. Analyze {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to maximize profit.
+7. Open LONG and SHORT positions to maximize profit.
 
 Respond ONLY with JSON:
 {{
@@ -293,7 +294,7 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
             # ==========================================
             # 🛡️ 롱 수학적 익절 (손절 강제 차단 포함)
             # ==========================================
-            amount_to_close_long = long_contracts - short_contracts - pending_short_amount_coin
+            amount_to_close_long = long_contracts - (short_contracts * 2) - (pending_short_amount_coin * 2)
             
             if amount_to_close_long > 0 and amount_to_close_long < min_amount:
                 amount_to_close_long = 0.0
