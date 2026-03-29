@@ -142,12 +142,11 @@ class AutoTrader:
 
 RULES AND CONSTRAINTS:
 1. Mode: Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
-2. Risk: {max_allowed_long} USDT >= LONG notional >= SHORT notional ALWAYS.
-3. Use LONG as a shield for SHORT. LONG doesn't need a shield. Free_USDT is abundant for LONG.
+2. Risk: Max LONG notional = {max_allowed_long} USDT. Max SHORT notional = 50% of LONG notional.
+3. LONG doesn't need hedging. Free_USDT is abundant for LONG.
 4. Strategy: Use averaging down. Exit via TAKE_PROFIT only. Always set TAKE_PROFIT target for at least one of the positions.
 5. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
-6. Trend: Follow {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} trends. Do not counter-trade {TIMEFRAME_MACRO} trend.
-7. Open LONG and SHORT positions to maximize profit.
+6. Analyze {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to maximize profit.
 
 Respond ONLY with JSON:
 {{
@@ -272,8 +271,9 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                         order_coin = float(raw_coin_str)
                         if order_coin <= 0: continue
                         
-                        if simulated_tracked_short_coin + order_coin > simulated_long_shield_coin:
-                            order_coin = simulated_long_shield_coin - simulated_tracked_short_coin
+                        max_sim_short = simulated_long_shield_coin * 0.5
+                        if simulated_tracked_short_coin + order_coin > max_sim_short:
+                            order_coin = max_sim_short - simulated_tracked_short_coin
                             
                             if order_coin < min_amount: 
                                 continue
@@ -398,12 +398,14 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                     tracked_long += amount_usdt
                     
                 elif pos_side == 'SHORT' and side == 'sell':
-                    if tracked_short_coin + amount_coin > actual_long_shield_coin: 
-                        amount_coin = actual_long_shield_coin - tracked_short_coin
+                    # 롱 물량의 50%를 최종 숏 한도로 설정
+                    max_short_allowed = actual_long_shield_coin * 0.5
+                    if tracked_short_coin + amount_coin > max_short_allowed: 
+                        amount_coin = max_short_allowed - tracked_short_coin
                         
-                        # 방패(롱) 한도에 막혀서 숏 진입 불가!
+                        # 롱 50% 한도에 막혀서 숏 진입 불가!
                         if amount_coin < min_amount:
-                            print("⚠️ 숏 진입 불가: 현재 보유한 롱(방패) 수량이 부족합니다.")
+                            print("⚠️ 숏 진입 불가: 롱 수량의 50% 한도에 도달했습니다.")
                             continue
                             
                         amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_coin)
