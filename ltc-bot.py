@@ -142,12 +142,13 @@ class AutoTrader:
 
 RULES AND CONSTRAINTS:
 1. Mode: Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
-2. Risk: Max LONG notional = {max_allowed_long} USDT. Max SHORT notional = 50% of LONG notional.
-3. LONG doesn't need hedging. Free_USDT is abundant for LONG.
+2. Risk: Max LONG notional = {max_allowed_long} USDT. Max SHORT entry = 50% of LONG notional.
+3. SHORT must be shielded by LONG. LONG doesn't need shielding.
 4. Strategy: Use averaging down. Exit via TAKE_PROFIT only. Always set TAKE_PROFIT target for at least one of the positions.
-5. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
-6. Analyze {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to maximize profit.
-7. Open LONG and SHORT positions to maximize profit.
+5. Set TAKE_PROFIT target for LONG_amount exceeding SHORT_amount to maximize profit.
+6. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
+7. Analyze {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to maximize profit.
+8. Open LONG and SHORT positions to maximize profit.
 
 Respond ONLY with JSON:
 {{
@@ -294,7 +295,7 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
             # ==========================================
             # 🛡️ 롱 수학적 익절 (손절 강제 차단 포함)
             # ==========================================
-            amount_to_close_long = long_contracts - (short_contracts * 2) - (pending_short_amount_coin * 2)
+            amount_to_close_long = long_contracts - short_contracts - pending_short_amount_coin
             
             if amount_to_close_long > 0 and amount_to_close_long < min_amount:
                 amount_to_close_long = 0.0
@@ -303,8 +304,8 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
             amount_to_close_long_clean = float(amount_to_close_long_str)
 
             if long_contracts > 0 and l_tp > 0:
-                if l_tp <= long_entry_price:
-                    warn_msg = f"🚨 [강제 차단] AI가 롱 진입가({long_entry_price})보다 낮거나 같은 목표가({l_tp})를 제시했습니다!"
+                if l_tp < long_entry_price:
+                    warn_msg = f"🚨 [강제 차단] 롱 진입가({long_entry_price})보다 낮은 목표가({l_tp})를 차단합니다!"
                     print(warn_msg)
                     self.send_telegram(warn_msg)
                 else:
@@ -330,8 +331,8 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
             # 🛡️ 숏 100% 전량 익절 (손절 강제 차단 포함)
             # ==========================================
             if short_contracts > 0 and s_tp > 0:
-                if s_tp >= short_entry_price:
-                    print(f"🚨 [강제 차단] AI가 숏 진입가({short_entry_price})보다 높거나 같은 목표가({s_tp})를 제시했습니다!")
+                if s_tp > short_entry_price:
+                    print(f"🚨 [강제 차단] 숏 진입가({short_entry_price})보다 높은 목표가({s_tp})를 차단합니다!")
                 else:
                     tp_str = self.exchange.price_to_precision(SYMBOL, s_tp)
                     latest_price = self.exchange.fetch_ticker(SYMBOL)['last']
