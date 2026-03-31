@@ -185,11 +185,10 @@ RULES AND CONSTRAINTS:
 1. Mode: Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
 2. Risk: Max LONG notional = {max_allowed_long} USDT. Max SHORT entry = 50% of LONG notional.
 3. SHORT must be shielded by LONG. LONG doesn't need shielding.
-4. Strategy: Use averaging down. Exit via TAKE_PROFIT only. Always set TAKE_PROFIT target for at least one of the positions.
-5. Set TAKE_PROFIT target for LONG_amount exceeding SHORT_amount to maximize profit.
+4. Strategy: Use averaging down. Exit via TAKE_PROFIT only. Open LONG and SHORT positions to maximize profit.
+5. Always set TAKE_PROFIT target for at least one of the positions. Prioritize position that is more likely to reach TAKE_PROFIT target.
 6. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
 7. Analyze {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to maximize profit.
-8. Open LONG and SHORT positions to maximize profit.
 
 Respond ONLY with JSON:
 {{
@@ -505,6 +504,11 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 
                 # [로직 변경점 4] 방금 판단한 내용을 즉시 실행 (취소 과정 생략)
                 self.execute_orders(signal, account_state)
+                
+                # 주문 직후 발생하는 '즉시 체결(시장가 등)' 먼지가 가라앉기를 3초간 기다립니다.
+                time.sleep(3)
+                # 방금 낸 주문 때문에 사냥개가 울린 알람을 초기화(리셋)하고 안전하게 자러 갑니다.
+                self.wake_event.clear()
                 
                 print(f"💤 {LOOP_INTERVAL_MINUTES}분 동안 대기 모드 진입...")
                 
