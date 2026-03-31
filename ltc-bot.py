@@ -5,6 +5,9 @@ import time
 import json
 import pandas as pd
 import pandas_ta_classic as ta
+import asyncio
+import threading
+import ccxt.pro as ccxtpro
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -17,7 +20,7 @@ TIMEFRAME_EXEC = '4h'  # 매매 진입 타점용 (실행 프레임)
 TIMEFRAME_TREND = '1d' # 큰 추세 확인용 (트렌드 프레임)
 TIMEFRAME_MACRO = '1w' # 초거시적 추세 확인용 (매크로 프레임)
 LEVERAGE = 5
-LOOP_INTERVAL_MINUTES = 60
+LOOP_INTERVAL_MINUTES = 120
 
 class AutoTrader:
     def __init__(self):
@@ -45,6 +48,8 @@ class AutoTrader:
 
         self.client = genai.Client(api_key=gemini_api_key)
         self.setup_exchange()
+        self.wake_event = threading.Event()
+        self.start_websocket_watcher()
 
     def send_telegram(self, message):
         if not self.telegram_token or not self.telegram_chat_id:
@@ -68,6 +73,42 @@ class AutoTrader:
             self.exchange.set_margin_mode('cross', SYMBOL)
         except Exception as e:
             print(f"⚠️ 설정 정보/경고: {e}")
+
+    def start_websocket_watcher(self):
+        """백그라운드에서 비동기 웹소켓 루프를 실행하는 스레드"""
+        def run_async_loop():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.watch_orders_loop())
+
+        watcher_thread = threading.Thread(target=run_async_loop, daemon=True)
+        watcher_thread.start()
+
+    async def watch_orders_loop(self):
+        """거래소에서 내 주문이 '체결(closed)'될 때만 알람을 울리는 사냥개 로직"""
+        ws_exchange = ccxtpro.binance({
+            'apiKey': os.getenv("BINANCE_API_KEY"),
+            'secret': os.getenv("BINANCE_SECRET_KEY"),
+            'options': {'defaultType': 'future'}
+        })
+        print("👁️‍🗨️ 감시 시스템이 실행되었습니다!")
+        
+        while True:
+            try:
+                # 주문 상태에 변화가 생길 때까지 대기 (Push 알림)
+                orders = await ws_exchange.watch_orders(SYMBOL)
+                for order in orders:
+                    # 'closed' = 주문이 100% 완전 체결됨 (진입 성공 or 익절 성공)
+                    if order.get('status') == 'closed':
+                        side_kr = "매수(롱 진입/숏 익절)" if order.get('side') == 'buy' else "매도(숏 진입/롱 익절)"
+                        print(f"\n {side_kr} 주문 체결 감지! ({order.get('price')} USDT)")
+                        print("⏰ 메인 봇 즉시 가동!")
+                        
+                        self.wake_event.set() # 👈 수면 중인 메인 봇의 알람 버튼을 쾅! 누름
+            except Exception as e:
+                print(f"⚠️ 웹소켓 통신 오류 (5초 후 자동 재연결...): {e}")
+                await asyncio.sleep(5)
+
 
     def fetch_data(self, timeframe):
         print(f"📊 {SYMBOL}의 {timeframe} 캔들 데이터 가져오는 중...")
@@ -465,8 +506,13 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 # [로직 변경점 4] 방금 판단한 내용을 즉시 실행 (취소 과정 생략)
                 self.execute_orders(signal, account_state)
                 
-                print(f"💤 {LOOP_INTERVAL_MINUTES}분 동안 대기(수면) 모드 진입...")
-                time.sleep(LOOP_INTERVAL_MINUTES * 60)
+                print(f"💤 {LOOP_INTERVAL_MINUTES}분 동안 대기 모드 진입...")
+                
+                # 1시간을 기다리되, 웹소켓이 wake_event.set()을 누르면 그 즉시 깨어남!
+                self.wake_event.wait(timeout=LOOP_INTERVAL_MINUTES * 60)
+                
+                # 깨어난 후에는 다음 턴을 위해 알람 시계를 다시 초기화
+                self.wake_event.clear()
                 
             except Exception as e:
                 print(f"🚨 메인 루프 실행 중 치명적 오류 발생: {e}")
