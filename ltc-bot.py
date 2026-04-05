@@ -85,26 +85,41 @@ class AutoTrader:
         watcher_thread.start()
 
     async def watch_orders_loop(self):
-        """거래소에서 내 주문이 '체결(closed)'될 때만 알람을 울리는 사냥개 로직"""
+        """거래소에서 내 주문이 '체결(closed)'될 때, '진입' 주문인 경우만 봇을 깨우는 로직"""
         ws_exchange = ccxtpro.binance({
             'apiKey': os.getenv("BINANCE_API_KEY"),
             'secret': os.getenv("BINANCE_SECRET_KEY"),
             'options': {'defaultType': 'future'}
         })
-        print("👁️‍🗨️ 감시 시스템이 실행되었습니다!")
+        print("👁️‍🗨️ 감시 시스템 가동")
         
         while True:
             try:
-                # 주문 상태에 변화가 생길 때까지 대기 (Push 알림)
+                # 주문 상태 변화 대기
                 orders = await ws_exchange.watch_orders(SYMBOL)
                 for order in orders:
-                    # 'closed' = 주문이 100% 완전 체결됨 (진입 성공 or 익절 성공)
+                    # 'closed' = 주문이 완전히 체결됨
                     if order.get('status') == 'closed':
-                        side_kr = "매수(롱 진입/숏 익절)" if order.get('side') == 'buy' else "매도(숏 진입/롱 익절)"
-                        print(f"\n {side_kr} 주문 체결 감지! ({order.get('price')} USDT)")
-                        print("⏰ 메인 봇 즉시 가동!")
+                        side = order.get('side') # 'buy' 또는 'sell'
+                        # 바이낸스 선물 데이터(ps)에서 포지션 방향 확인
+                        info = order.get('info', {})
+                        pos_side = info.get('ps', info.get('positionSide', '')).upper()
                         
-                        self.wake_event.set() # 👈 수면 중인 메인 봇의 알람 버튼을 쾅! 누름
+                        # 진입(Entry) 판별 로직
+                        is_entry = (side == 'buy' and pos_side == 'LONG') or \
+                                   (side == 'sell' and pos_side == 'SHORT')
+                        
+                        if is_entry:
+                            side_kr = "롱 진입" if side == 'buy' else "숏 진입"
+                            print(f"\n✅ {side_kr} 성공! ({order.get('price')} USDT)")
+                            print("⏰ 메인 봇 즉시 가동")
+                            self.wake_event.set() # 👈 메인 봇을 즉시 깨움
+                        else:
+                            # 익절(Exit)인 경우: 로그만 남기고 깨우지 않음
+                            exit_kr = "롱 익절" if side == 'sell' else "숏 익절"
+                            print(f"\n💰 {exit_kr} 완료 ({order.get('price')} USDT)")
+                            # self.wake_event.set() 호출 생략
+                            
             except Exception as e:
                 print(f"⚠️ 웹소켓 통신 오류 (5초 후 자동 재연결...): {e}")
                 await asyncio.sleep(5)
