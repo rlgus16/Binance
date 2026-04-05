@@ -173,9 +173,9 @@ class AutoTrader:
         
         cols_to_keep = ['open', 'high', 'low', 'close', 'volume', 'MACD_12_26_9', 'RSI_14', 'SMA_20', 'EMA_50', 'BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']
         
-        data_exec = df_exec[cols_to_keep].tail(50).round(3).to_dict(orient='records') 
+        data_exec = df_exec[cols_to_keep].tail(42).round(3).to_dict(orient='records') 
         data_trend = df_trend[cols_to_keep].tail(30).round(3).to_dict(orient='records') 
-        data_macro = df_macro[cols_to_keep].tail(25).round(3).to_dict(orient='records')
+        data_macro = df_macro[cols_to_keep].tail(26).round(3).to_dict(orient='records')
         
         max_allowed_long = float(account_state['usdt_total'])
         
@@ -185,10 +185,10 @@ RULES AND CONSTRAINTS:
 1. Mode: Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
 2. Risk: Max LONG notional = {max_allowed_long} USDT. Max SHORT entry = 50% of LONG notional.
 3. SHORT must be shielded by LONG. LONG doesn't need shielding.
-4. Strategy: Use averaging down. Exit via TAKE_PROFIT only. Open LONG and SHORT positions to maximize profit.
-5. Always set TAKE_PROFIT target for at least one of the positions. Prioritize position that is more likely to reach TAKE_PROFIT target.
+4. Strategy: Exit via TAKE_PROFIT only. Open LONG and SHORT positions to make profit. 
+5. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Set TAKE_PROFIT targets that will hit in 12 hours.
 6. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
-7. Analyze {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to maximize profit.
+7. Follow {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} trends. Do not counter-trade {TIMEFRAME_MACRO} trend.
 
 Respond ONLY with JSON:
 {{
