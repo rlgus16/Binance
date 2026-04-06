@@ -188,9 +188,9 @@ class AutoTrader:
         
         cols_to_keep = ['open', 'high', 'low', 'close', 'volume', 'MACD_12_26_9', 'RSI_14', 'SMA_20', 'EMA_50', 'BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']
         
-        data_exec = df_exec[cols_to_keep].tail(42).round(3).to_dict(orient='records') 
-        data_trend = df_trend[cols_to_keep].tail(30).round(3).to_dict(orient='records') 
-        data_macro = df_macro[cols_to_keep].tail(26).round(3).to_dict(orient='records')
+        data_exec = df_exec[cols_to_keep].tail(100).round(3).to_dict(orient='records') 
+        data_trend = df_trend[cols_to_keep].tail(60).round(3).to_dict(orient='records') 
+        data_macro = df_macro[cols_to_keep].tail(50).round(3).to_dict(orient='records')
         
         max_allowed_long = float(account_state['usdt_total'])
         
