@@ -128,7 +128,7 @@ class AutoTrader:
     def fetch_data(self, timeframe):
         print(f"📊 {SYMBOL}의 {timeframe} 캔들 데이터 가져오는 중...")
         try:
-            ohlcv = self.exchange.fetch_ohlcv(SYMBOL, timeframe=timeframe, limit=100)
+            ohlcv = self.exchange.fetch_ohlcv(SYMBOL, timeframe=timeframe, limit=300)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             
@@ -137,6 +137,7 @@ class AutoTrader:
             df.ta.sma(length=20, append=True)
             df.ta.ema(length=50, append=True)
             df.ta.bbands(length=20, append=True)
+            df.ta.atr(length=14, append=True)
             
             df.bfill(inplace=True)
             return df
@@ -186,7 +187,7 @@ class AutoTrader:
     def get_gemini_signal(self, df_exec, df_trend, df_macro, account_state):
         print("🤖 Gemini 모델로 데이터 분석 중...")
         
-        cols_to_keep = ['open', 'high', 'low', 'close', 'volume', 'MACD_12_26_9', 'RSI_14', 'SMA_20', 'EMA_50', 'BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']
+        cols_to_keep = ['open', 'high', 'low', 'close', 'volume', 'MACD_12_26_9', 'RSI_14', 'SMA_20', 'EMA_50', 'BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0', 'ATRr_14']
         
         data_exec = df_exec[cols_to_keep].tail(100).round(3).to_dict(orient='records') 
         data_trend = df_trend[cols_to_keep].tail(60).round(3).to_dict(orient='records') 
@@ -201,7 +202,7 @@ RULES AND CONSTRAINTS:
 2. Risk: Max LONG notional = {max_allowed_long} USDT. Max SHORT entry = 50% of LONG notional.
 3. SHORT must be shielded by LONG. LONG doesn't need shielding.
 4. Strategy: Exit via TAKE_PROFIT only. Open LONG and SHORT positions to make profit. 
-5. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Set TAKE_PROFIT targets that will hit in 12 hours.
+5. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Use the ATRr_14 value to set realistic TAKE_PROFIT targets.
 6. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
 7. Follow {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} trends. Do not counter-trade {TIMEFRAME_MACRO} trend.
 
