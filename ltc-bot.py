@@ -169,12 +169,14 @@ class AutoTrader:
                     'contracts': float(long_pos.get('contracts', 0)) if long_pos else 0.0,
                     'entryPrice': float(long_pos.get('entryPrice', 0)) if long_pos else 0.0,
                     'unrealizedPnl': float(long_pos.get('unrealizedPnl', 0)) if long_pos else 0.0,
+                    'liquidationPrice': float(long_pos.get('liquidationPrice', 0)) if long_pos else 0.0,
                 },
                 'short_position': {
                     'notional': short_notional,
                     'contracts': float(short_pos.get('contracts', 0)) if short_pos else 0.0,
                     'entryPrice': float(short_pos.get('entryPrice', 0)) if short_pos else 0.0,
                     'unrealizedPnl': float(short_pos.get('unrealizedPnl', 0)) if short_pos else 0.0,
+                    'liquidationPrice': float(short_pos.get('liquidationPrice', 0)) if short_pos else 0.0,
                 },
                 'open_orders': [
                     {'id': o['id'], 'side': o['side'], 'type': o['type'], 'price': o['price'], 'amount': o['amount'], 'positionSide': o.get('info', {}).get('positionSide')}
@@ -190,22 +192,24 @@ class AutoTrader:
         
         cols_to_keep = ['open', 'high', 'low', 'close', 'volume', 'MACD_12_26_9', 'RSI_14', 'SMA_20', 'EMA_50', 'BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0', 'ATRr_14']
         
-        data_exec = df_exec[cols_to_keep].tail(100).round(3).to_dict(orient='records') 
-        data_trend = df_trend[cols_to_keep].tail(60).round(3).to_dict(orient='records') 
-        data_macro = df_macro[cols_to_keep].tail(50).round(3).to_dict(orient='records')
+        data_exec = df_exec[cols_to_keep].tail(42).round(3).to_dict(orient='records') 
+        data_trend = df_trend[cols_to_keep].tail(30).round(3).to_dict(orient='records') 
+        data_macro = df_macro[cols_to_keep].tail(26).round(3).to_dict(orient='records')
         
         max_allowed_long = float(account_state['usdt_total'])
         
         system_instruction = f"""You are a quant trading AI for {SYMBOL} (Binance Futures).
 
 RULES AND CONSTRAINTS:
-1. Mode: Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
-2. Risk: Max LONG notional = {max_allowed_long} USDT. Max SHORT entry = 50% of LONG notional.
-3. SHORT must be shielded by LONG. LONG doesn't need shielding.
-4. Strategy: Exit via TAKE_PROFIT only. Open LONG and SHORT positions to make profit. 
-5. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Use the ATRr_14 value to set realistic TAKE_PROFIT targets.
-6. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
-7. Follow {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} trends. Do not counter-trade {TIMEFRAME_MACRO} trend.
+1. Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
+2. Max LONG notional = {max_allowed_long} USDT. Max SHORT entry = 50% of LONG notional.
+3. When exiting LONG, leave a remaining LONG notional that is at least equal to the current SHORT notional to hedge the SHORT.
+4. SHORT is very safe because it is always hedged by LONG. LONG doesn't need hedging. Free_balance is abundant for LONG.
+5. Both LONG and SHORT have no chance of liquidation. Focus on realizing profit.
+6. Strategy: Exit via TAKE_PROFIT only. You can open LONG and SHORT positions to realize profit. You can average down to realize profit.
+7. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Use the ATRr_14 value to set realistic TAKE_PROFIT targets.
+8. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
+9. Analyze {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to set optimum entry and TAKE_PROFIT targets.
 
 Respond ONLY with JSON:
 {{
@@ -218,8 +222,8 @@ Respond ONLY with JSON:
 Current Account State:
 USDT Free: {account_state['usdt_free']}
 USDT Total: {account_state['usdt_total']}
-Long Position: Notional {account_state['long_position']['notional']} USDT at Avg Price {account_state['long_position']['entryPrice']}
-Short Position: Notional {account_state['short_position']['notional']} USDT at Avg Price {account_state['short_position']['entryPrice']}
+Long Position: Notional {account_state['long_position']['notional']} USDT at Avg Price {account_state['long_position']['entryPrice']} (Liquidation Price: {account_state['long_position']['liquidationPrice']})
+Short Position: Notional {account_state['short_position']['notional']} USDT at Avg Price {account_state['short_position']['entryPrice']} (Liquidation Price: {account_state['short_position']['liquidationPrice']})
 Open Orders count: {len(account_state['open_orders'])}
 
 [SUPER MACRO TREND - Last prices from {TIMEFRAME_MACRO} Candles]
