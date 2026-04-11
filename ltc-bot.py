@@ -7,6 +7,7 @@ import pandas as pd
 import pandas_ta_classic as ta
 import asyncio
 import threading
+import concurrent.futures
 import ccxt.pro as ccxtpro
 from dotenv import load_dotenv
 from google import genai
@@ -221,7 +222,7 @@ RULES AND CONSTRAINTS:
 6. Strategy: Exit via TAKE_PROFIT only. You can open LONG and SHORT positions to realize profit. Averaging is allowed to realize profit.
 7. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Use the ATRr_14 value to set realistic TAKE_PROFIT targets.
 8. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
-9. Analyze {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to set optimum entry and TAKE_PROFIT targets.
+9. Analyze {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to set optimum targets.
 10. You re-analyze the market every {LOOP_INTERVAL_MINUTES} minutes. Set targets accordingly.
 
 Respond ONLY with JSON:
@@ -519,27 +520,37 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
             try:
                 print(f"\n--- ☀️ AI 기상 및 3단계 시장 분석 시작 ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---")
                 
-                # [로직 변경점 1] 미체결 주문 먼저 싹쓸이!
+                # 미체결 주문 먼저 싹쓸이!
                 if not self.clear_all_open_orders():
                     print("⏳ 취소 실패로 인해 10분 대기 후 재시도합니다...")
                     time.sleep(600)
                     continue
                 
-                # [로직 변경점 2] 깨끗해진 상태에서 데이터 및 계좌 상태 확인
-                df_exec = self.fetch_data(TIMEFRAME_EXEC)
-                df_trend = self.fetch_data(TIMEFRAME_TREND)
-                df_macro = self.fetch_data(TIMEFRAME_MACRO)
-                
+                print(" 네트워크 호출 병렬 처리 중...")
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    # 5개의 API 호출 작업을 스레드풀에 동시에 던집니다.
+                    future_exec = executor.submit(self.fetch_data, TIMEFRAME_EXEC)
+                    future_trend = executor.submit(self.fetch_data, TIMEFRAME_TREND)
+                    future_macro = executor.submit(self.fetch_data, TIMEFRAME_MACRO)
+                    future_account = executor.submit(self.get_account_state)
+                    future_sentiment = executor.submit(self.get_market_sentiment)
+
+                    # 결과가 모두 도착할 때까지 대기한 후 변수에 할당합니다.
+                    df_exec = future_exec.result()
+                    df_trend = future_trend.result()
+                    df_macro = future_macro.result()
+                    account_state = future_account.result()
+                    market_sentiment = future_sentiment.result()
+
+                # 데이터가 정상적으로 들어왔는지 유효성 검사 (기존 로직 유지)
                 if df_exec is None or df_exec.empty or df_trend is None or df_trend.empty or df_macro is None or df_macro.empty:
-                    time.sleep(60); continue 
+                    time.sleep(60)
+                    continue 
                 
-                account_state = self.get_account_state()
                 if account_state is None:
-                    time.sleep(60); continue 
-                
-                # 시장 센티먼트 데이터 가져오기
-                market_sentiment = self.get_market_sentiment()
-                
+                    time.sleep(60)
+                    continue 
+
                 # 주문 0개인 상태를 AI에게 보고하여 신규 판단 요청
                 signal = self.get_gemini_signal(df_exec, df_trend, df_macro, account_state, market_sentiment)
                 
