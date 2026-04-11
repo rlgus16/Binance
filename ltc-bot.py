@@ -166,17 +166,17 @@ class AutoTrader:
                 'usdt_total': usdt_total,
                 'long_position': {
                     'notional': long_notional,
-                    'contracts': float(long_pos.get('contracts', 0)) if long_pos else 0.0,
-                    'entryPrice': float(long_pos.get('entryPrice', 0)) if long_pos else 0.0,
-                    'unrealizedPnl': float(long_pos.get('unrealizedPnl', 0)) if long_pos else 0.0,
-                    'liquidationPrice': float(long_pos.get('liquidationPrice', 0)) if long_pos else 0.0,
+                    'contracts': float(long_pos.get('contracts') or 0.0) if long_pos else 0.0,
+                    'entryPrice': float(long_pos.get('entryPrice') or 0.0) if long_pos else 0.0,
+                    'unrealizedPnl': float(long_pos.get('unrealizedPnl') or 0.0) if long_pos else 0.0,
+                    'liquidationPrice': float(long_pos.get('liquidationPrice') or 0.0) if long_pos else 0.0,
                 },
                 'short_position': {
                     'notional': short_notional,
-                    'contracts': float(short_pos.get('contracts', 0)) if short_pos else 0.0,
-                    'entryPrice': float(short_pos.get('entryPrice', 0)) if short_pos else 0.0,
-                    'unrealizedPnl': float(short_pos.get('unrealizedPnl', 0)) if short_pos else 0.0,
-                    'liquidationPrice': float(short_pos.get('liquidationPrice', 0)) if short_pos else 0.0,
+                    'contracts': float(short_pos.get('contracts') or 0.0) if short_pos else 0.0,
+                    'entryPrice': float(short_pos.get('entryPrice') or 0.0) if short_pos else 0.0,
+                    'unrealizedPnl': float(short_pos.get('unrealizedPnl') or 0.0) if short_pos else 0.0,
+                    'liquidationPrice': float(short_pos.get('liquidationPrice') or 0.0) if short_pos else 0.0,
                 },
                 'open_orders': [
                     {'id': o['id'], 'side': o['side'], 'type': o['type'], 'price': o['price'], 'amount': o['amount'], 'positionSide': o.get('info', {}).get('positionSide')}
@@ -187,7 +187,19 @@ class AutoTrader:
             print(f"❌ 계좌 상태 가져오기 오류: {e}")
             return None
 
-    def get_gemini_signal(self, df_exec, df_trend, df_macro, account_state):
+    def get_market_sentiment(self):
+        print("🌍 시장 센티먼트(펀딩비, 미결제약정) 데이터 수집 중...")
+        try:
+            funding_info = self.exchange.fetch_funding_rate(SYMBOL)
+            funding_rate = float(funding_info.get('fundingRate', 0.0))
+            oi_info = self.exchange.fetch_open_interest(SYMBOL)
+            open_interest = float(oi_info.get('openInterestAmount', 0.0))
+            return {'funding_rate': funding_rate, 'open_interest': open_interest}
+        except Exception as e:
+            print(f"⚠️ 시장 센티먼트 수집 실패: {e}")
+            return {'funding_rate': 0.0, 'open_interest': 0.0}
+
+    def get_gemini_signal(self, df_exec, df_trend, df_macro, account_state, market_sentiment):
         print("🤖 Gemini 모델로 데이터 분석 중...")
         
         cols_to_keep = ['open', 'high', 'low', 'close', 'volume', 'MACD_12_26_9', 'RSI_14', 'SMA_20', 'EMA_50', 'BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0', 'ATRr_14']
@@ -206,10 +218,11 @@ RULES AND CONSTRAINTS:
 3. When exiting LONG, leave a remaining LONG notional that is at least equal to the current SHORT notional to hedge the SHORT.
 4. SHORT is very safe because it is always hedged by LONG. LONG doesn't need hedging. Free_balance is abundant for LONG.
 5. Both LONG and SHORT have no chance of liquidation. Focus on realizing profit.
-6. Strategy: Exit via TAKE_PROFIT only. You can open LONG and SHORT positions to realize profit. You can average down to realize profit.
+6. Strategy: Exit via TAKE_PROFIT only. You can open LONG and SHORT positions to realize profit. Averaging is allowed to realize profit.
 7. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Use the ATRr_14 value to set realistic TAKE_PROFIT targets.
 8. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
 9. Analyze {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to set optimum entry and TAKE_PROFIT targets.
+10. You re-analyze the market every {LOOP_INTERVAL_MINUTES} minutes. Set targets accordingly.
 
 Respond ONLY with JSON:
 {{
@@ -225,6 +238,10 @@ USDT Total: {account_state['usdt_total']}
 Long Position: Notional {account_state['long_position']['notional']} USDT at Avg Price {account_state['long_position']['entryPrice']} (Liquidation Price: {account_state['long_position']['liquidationPrice']})
 Short Position: Notional {account_state['short_position']['notional']} USDT at Avg Price {account_state['short_position']['entryPrice']} (Liquidation Price: {account_state['short_position']['liquidationPrice']})
 Open Orders count: {len(account_state['open_orders'])}
+
+[MARKET SENTIMENT]
+Funding Rate: {market_sentiment['funding_rate'] * 100:.4f}%
+Open Interest: {market_sentiment['open_interest']} Contracts
 
 [SUPER MACRO TREND - Last prices from {TIMEFRAME_MACRO} Candles]
 {data_macro}
@@ -520,10 +537,13 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 if account_state is None:
                     time.sleep(60); continue 
                 
-                # [로직 변경점 3] 주문 0개인 상태를 AI에게 보고하여 신규 판단 요청
-                signal = self.get_gemini_signal(df_exec, df_trend, df_macro, account_state)
+                # 시장 센티먼트 데이터 가져오기
+                market_sentiment = self.get_market_sentiment()
                 
-                # [로직 변경점 4] 방금 판단한 내용을 즉시 실행 (취소 과정 생략)
+                # 주문 0개인 상태를 AI에게 보고하여 신규 판단 요청
+                signal = self.get_gemini_signal(df_exec, df_trend, df_macro, account_state, market_sentiment)
+                
+                # 방금 판단한 내용을 즉시 실행 (취소 과정 생략)
                 self.execute_orders(signal, account_state)
                 
                 # 주문 직후 발생하는 '즉시 체결(시장가 등)' 먼지가 가라앉기를 3초간 기다립니다.
