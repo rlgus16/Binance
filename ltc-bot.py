@@ -217,13 +217,13 @@ RULES AND CONSTRAINTS:
 1. Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
 2. Max LONG notional = {max_allowed_long} USDT. Max SHORT entry = 50% of LONG notional.
 3. When exiting LONG, leave a remaining LONG notional that is at least equal to the current SHORT notional to hedge the SHORT.
-4. SHORT is very safe because it is always hedged by LONG. LONG doesn't need hedging. Free_balance is abundant for LONG.
-5. Both LONG and SHORT have no chance of liquidation. Focus on realizing profit.
-6. Strategy: Exit via TAKE_PROFIT only. You can open LONG and SHORT positions to realize profit. Averaging is allowed to realize profit.
-7. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Use the ATRr_14 value to set realistic TAKE_PROFIT targets.
-8. Orders: Use limit orders for entries. Minimum order amount > 20 USDT.
-9. Analyze {TIMEFRAME_MACRO} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to set optimum targets.
-10. You re-analyze the market every {LOOP_INTERVAL_MINUTES} minutes. Set targets accordingly.
+4. SHORT is very safe because it is always hedged by LONG. LONG doesn't need hedging because Free_Balance is abundant for LONG.
+5. Both LONG and SHORT have no chance of liquidation. Do not worry about hedging. Focus on realizing profit.
+6. Exit via TAKE_PROFIT only. You can open LONG and SHORT positions to realize profit. Adjusting average is allowed to realize profit.
+7. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Use the ATRr_14 value to set realistic targets.
+8. Use limit orders for entries. Minimum order amount > 20 USDT.
+9. Analyze {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to set optimum targets.
+10. You re-analyze the market and reset orders every {LOOP_INTERVAL_MINUTES} minutes. Set targets accordingly.
 
 Respond ONLY with JSON:
 {{
