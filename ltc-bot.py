@@ -21,7 +21,7 @@ TIMEFRAME_EXEC = '4h'  # 매매 진입 타점용 (실행 프레임)
 TIMEFRAME_TREND = '1d' # 큰 추세 확인용 (트렌드 프레임)
 TIMEFRAME_MACRO = '1w' # 초거시적 추세 확인용 (매크로 프레임)
 LEVERAGE = 5
-LOOP_INTERVAL_MINUTES = 120
+LOOP_INTERVAL_MINUTES = 240
 
 class AutoTrader:
     def __init__(self):
@@ -215,15 +215,14 @@ class AutoTrader:
 
 RULES AND CONSTRAINTS:
 1. Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
-2. Max LONG notional = {max_allowed_long} USDT. Max SHORT entry = 50% of LONG notional.
-3. When exiting LONG, leave a remaining LONG notional that is at least equal to the current SHORT notional to hedge the SHORT.
-4. SHORT is very safe because it is always hedged by LONG. LONG doesn't need hedging because Free_Balance is abundant for LONG.
-5. Both LONG and SHORT have no chance of liquidation. Do not worry about hedging. Focus on realizing profit.
-6. Exit via TAKE_PROFIT only. You can open LONG and SHORT positions to realize profit. Adjusting average is allowed to realize profit.
-7. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Use the ATRr_14 value to set realistic targets.
-8. Use limit orders for entries. Minimum order amount > 20 USDT.
-9. Analyze {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to set optimum targets.
-10. You re-analyze the market and reset orders every {LOOP_INTERVAL_MINUTES} minutes. Set targets accordingly.
+2. Max Long: {max_allowed_long} USDT. Max Short: 50% of Long. This allows profit in upward and downward trends with zero liquidation risk.
+3. When exiting LONG, keep LONG notional ≥ SHORT notional to maintain hedge.
+4. SHORT is hedged by LONG. LONG is safe via free balance. Both positions have zero liquidation risk. Prioritize realizing profit over hedging.
+5. Exit via TAKE_PROFIT only. Realize bi-directional profit via LONG and SHORT. Use averaging to maximize profit.
+6. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Use the ATRr_14 value to set realistic targets.
+7. Use limit orders for entries. Minimum order amount > 20 USDT.
+8. Analyze {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to set realistic targets.
+9. You analyze the market and reset orders every {LOOP_INTERVAL_MINUTES} minutes. Set targets accordingly.
 
 Respond ONLY with JSON:
 {{
