@@ -116,7 +116,8 @@ class AutoTrader:
                                 self.wake_event.set() 
                             else:
                                 exit_kr = "롱 익절" if side == 'sell' else "숏 익절"
-                                print(f"\n💰 {exit_kr} 완료 ({order.get('price')} USDT) - 수면 유지")
+                                print(f"\n💰 {exit_kr} 완료 ({order.get('price')} USDT) - 새로운 진입 기회를 찾기 위해 봇을 즉시 깨웁니다.")
+                                self.wake_event.set()
                                 
             except Exception as e:
                 print(f"⚠️ 웹소켓 끊김 감지 (5초 후 완전 초기화 재연결...): {e}")
