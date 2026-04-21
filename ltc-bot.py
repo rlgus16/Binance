@@ -17,7 +17,7 @@ load_dotenv()
 
 # Configuration
 SYMBOL = 'LTC/USDT:USDT'
-TIMEFRAME_EXEC = '4h'  # 매매 진입 타점용 (실행 프레임)
+TIMEFRAME_EXEC = '1h'  # 매매 진입 타점용 (실행 프레임)
 TIMEFRAME_TREND = '1d' # 큰 추세 확인용 (트렌드 프레임)
 TIMEFRAME_MACRO = '1w' # 초거시적 추세 확인용 (매크로 프레임)
 LEVERAGE = 5
@@ -206,9 +206,9 @@ class AutoTrader:
         
         cols_to_keep = ['open', 'high', 'low', 'close', 'volume', 'MACD_12_26_9', 'RSI_14', 'SMA_20', 'EMA_50', 'BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0', 'ATRr_14']
         
-        data_exec = df_exec[cols_to_keep].tail(42).round(3).to_dict(orient='records') 
-        data_trend = df_trend[cols_to_keep].tail(30).round(3).to_dict(orient='records') 
-        data_macro = df_macro[cols_to_keep].tail(26).round(3).to_dict(orient='records')
+        data_exec = df_exec[cols_to_keep].tail(24).round(3).to_dict(orient='records')
+        data_trend = df_trend[cols_to_keep].tail(14).round(3).to_dict(orient='records') 
+        data_macro = df_macro[cols_to_keep].tail(13).round(3).to_dict(orient='records')
         
         max_allowed_long = float(account_state['usdt_total'])
         
@@ -220,10 +220,10 @@ RULES AND CONSTRAINTS:
 3. When exiting LONG, keep LONG notional ≥ SHORT notional to maintain hedge.
 4. SHORT is hedged by LONG. LONG is safe via free balance. Both positions have zero liquidation risk. Prioritize realizing profit over hedging.
 5. Exit via TAKE_PROFIT only. Realize bi-directional profit via LONG and SHORT. Use averaging to maximize profit.
-6. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Use the ATRr_14 value to set realistic targets.
+6. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Use the ATRr_14 value to set targets that will hit in the next {LOOP_INTERVAL_MINUTES} minutes.
 7. Use limit orders for entries. Minimum order amount > 20 USDT.
-8. Analyze {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to set realistic targets.
-9. You analyze the market and reset orders every {LOOP_INTERVAL_MINUTES} minutes. Set targets accordingly.
+8. Analyze {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to maximize profit.
+9. You analyze the market and reset orders every {LOOP_INTERVAL_MINUTES} minutes. Set targets that will hit in the next {LOOP_INTERVAL_MINUTES} minutes.
 
 Respond ONLY with JSON:
 {{
@@ -257,7 +257,7 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
 """
         try:
             response = self.client.models.generate_content(
-                model='gemini-3.1-flash-lite-preview',
+                model='gemini-flash-latest',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -318,6 +318,11 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
         try:
             signal_text = signal_text.replace("```json\n", "").replace("```\n", "").replace("```", "")
             decision = json.loads(signal_text)
+            
+            # 🛡️ AI가 JSON 배열(List) 형태로 잘못 응답했을 경우를 위한 방어 로직
+            if isinstance(decision, list):
+                decision = decision[0] if len(decision) > 0 else {}
+
             print(f"💡 AI 분석 결과 및 전략: {decision.get('reasoning')}")
 
             # 거래소에서 코인별 최소 주문 수량을 직접 가져옵니다.
