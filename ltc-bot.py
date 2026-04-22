@@ -211,19 +211,20 @@ class AutoTrader:
         data_macro = df_macro[cols_to_keep].tail(13).round(3).to_dict(orient='records')
         
         max_allowed_long = float(account_state['usdt_total'])
+        max_allowed_short = (float(account_state['usdt_total']) * 0.5)
         
         system_instruction = f"""You are a quant trading AI for {SYMBOL} (Binance Futures).
 
 RULES AND CONSTRAINTS:
 1. Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
-2. Max Long: {max_allowed_long} USDT. Max Short: 50% of Long. This allows profit in upward and downward trends with zero liquidation risk.
+2. Max Long: {max_allowed_long} USDT. Max Short: {max_allowed_short} USDT, but MUST NEVER exceed the current LONG notional.
 3. When exiting LONG, keep LONG notional ≥ SHORT notional to maintain hedge.
-4. SHORT is hedged by LONG. LONG is safe via free balance. Both positions have zero liquidation risk. Prioritize realizing profit over hedging.
-5. Exit via TAKE_PROFIT only. Realize bi-directional profit via LONG and SHORT. Use averaging to maximize profit.
-6. ALWAYS set TAKE_PROFIT target for at least one of the open positions. Use the ATRr_14 value to set targets that will hit in the next {LOOP_INTERVAL_MINUTES} minutes.
+4. SHORT is hedged by LONG. LONG is safe via free balance. Both positions have extremely low liquidation risk. Prioritize realizing profit over hedging.
+5. Exit via TAKE_PROFIT only. Use averaging to maximize profit.
+6. ALWAYS set TAKE_PROFIT target for at least one of the open positions that will be hit in the next {LOOP_INTERVAL_MINUTES} minutes.
 7. Use limit orders for entries. Minimum order amount > 20 USDT.
 8. Analyze {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to maximize profit.
-9. You analyze the market and reset orders every {LOOP_INTERVAL_MINUTES} minutes. Set targets that will hit in the next {LOOP_INTERVAL_MINUTES} minutes.
+9. You analyze the market and reset orders every {LOOP_INTERVAL_MINUTES} minutes. Set targets that will be hit in the next {LOOP_INTERVAL_MINUTES} minutes.
 
 Respond ONLY with JSON:
 {{
@@ -484,14 +485,18 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                     tracked_long += amount_usdt
                     
                 elif pos_side == 'SHORT' and side == 'sell':
-                    # 롱 물량의 50%를 최종 숏 한도로 설정
-                    max_short_allowed = actual_long_shield_coin * 0.5
+                    # 계좌 총액의 50%를 코인 갯수로 환산 (최대 예산)
+                    max_account_short_coin = (float(account_state['usdt_total']) * 0.5) / price
+                    
+                    # 최종 숏 한도: '계좌 50%'와 '현재 롱 방패 수량' 중 더 작은 값 (절대 방어선)
+                    max_short_allowed = min(max_account_short_coin, actual_long_shield_coin)
+                    
                     if tracked_short_coin + amount_coin > max_short_allowed: 
                         amount_coin = max_short_allowed - tracked_short_coin
                         
-                        # 롱 50% 한도에 막혀서 숏 진입 불가!
+                        # 방어막(롱) 부족 또는 50% 한도 도달로 진입 불가!
                         if amount_coin < min_amount:
-                            print("⚠️ 숏 진입 불가: 롱 수량의 50% 한도에 도달했습니다.")
+                            print("⚠️ 숏 진입 불가: 계좌 50% 한도 또는 롱(방패) 수량 한도에 도달했습니다.")
                             continue
                             
                         amount_coin_str = self.exchange.amount_to_precision(SYMBOL, amount_coin)
