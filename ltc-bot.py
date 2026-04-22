@@ -358,7 +358,12 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                         order_coin = float(raw_coin_str)
                         if order_coin <= 0: continue
                         
-                        max_sim_short = simulated_long_shield_coin * 0.5
+                        # 계좌 50%를 코인 갯수로 환산
+                        max_account_short_coin = (float(account_state['usdt_total']) * 0.5) / p
+                        
+                        # 최종 시뮬레이션 한도
+                        max_sim_short = min(max_account_short_coin, simulated_long_shield_coin)
+                        
                         if simulated_tracked_short_coin + order_coin > max_sim_short:
                             order_coin = max_sim_short - simulated_tracked_short_coin
                             
