@@ -141,6 +141,7 @@ class AutoTrader:
             df.ta.ema(length=50, append=True)
             df.ta.bbands(length=20, append=True)
             df.ta.atr(length=14, append=True)
+            df['ATR_target'] = df['ATRr_14'] * 0.8
             
             df.bfill(inplace=True)
             return df
@@ -204,7 +205,7 @@ class AutoTrader:
     def get_gemini_signal(self, df_exec, df_trend, df_macro, account_state, market_sentiment):
         print("🤖 Gemini 모델로 데이터 분석 중...")
         
-        cols_to_keep = ['open', 'high', 'low', 'close', 'volume', 'MACD_12_26_9', 'RSI_14', 'SMA_20', 'EMA_50', 'BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0', 'ATRr_14']
+        cols_to_keep = ['open', 'high', 'low', 'close', 'volume', 'MACD_12_26_9', 'RSI_14', 'SMA_20', 'EMA_50', 'BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0', 'ATRr_14', 'ATR_target']
         
         data_exec = df_exec[cols_to_keep].tail(24).round(3).to_dict(orient='records')
         data_trend = df_trend[cols_to_keep].tail(14).round(3).to_dict(orient='records') 
@@ -217,14 +218,13 @@ class AutoTrader:
 
 RULES AND CONSTRAINTS:
 1. Hedge Mode, Cross Margin, {LEVERAGE}x Leverage.
-2. Max Long: {max_allowed_long} USDT. Max Short: {max_allowed_short} USDT, but MUST NEVER exceed the current LONG notional.
-3. When exiting LONG, keep LONG notional ≥ SHORT notional to maintain hedge.
-4. SHORT is hedged by LONG. LONG is safe via free balance. Both positions have extremely low liquidation risk. Prioritize realizing profit over hedging.
-5. Exit via TAKE_PROFIT only. Use averaging to maximize profit.
-6. ALWAYS set TAKE_PROFIT target for at least one of the open positions that will be hit in the next {LOOP_INTERVAL_MINUTES} minutes.
-7. Use limit orders for entries. Minimum order amount > 20 USDT.
-8. Analyze {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} & {TIMEFRAME_MACRO} trends to maximize profit.
-9. You analyze the market and reset orders every {LOOP_INTERVAL_MINUTES} minutes. Set targets that will be hit in the next {LOOP_INTERVAL_MINUTES} minutes.
+2. Max Long: {max_allowed_long} USDT. Max Short: min({max_allowed_short}, LONG notional) USDT.
+3. SHORT is hedged by LONG. LONG is safe via free balance. Both positions have extremely low liquidation risk. Prioritize realizing profit over hedging.
+4. Exit via TP only. Use averaging to maximize profit.
+5. Set TP for ≥1 pos using ATR_target value. Target must hit within {LOOP_INTERVAL_MINUTES}mins.
+6. Use limit orders for entries. Minimum order amount > 20 USDT.
+7. Follow {TIMEFRAME_EXEC} & {TIMEFRAME_TREND} trends. Do not counter-trade {TIMEFRAME_MACRO} trend.
+8. You analyze the market and reset orders every {LOOP_INTERVAL_MINUTES}mins. Set targets that will be hit within {LOOP_INTERVAL_MINUTES}mins.
 
 Respond ONLY with JSON:
 {{
