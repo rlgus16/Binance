@@ -574,9 +574,11 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 
                 print(f"💤 {LOOP_INTERVAL_MINUTES}분 동안 대기 모드 진입...")
                 
-                # 만약 execute_orders 도중 체결이 되었다면 wait()는 즉시 통과됩니다.
-                self.wake_event.wait(timeout=LOOP_INTERVAL_MINUTES * 60)
+                # 최소 30초는 무조건 강제로 쉬게 하여 API 과부하와 데이터 동기화를 보장합니다.
+                time.sleep(30)
                 
+                # 이미 30초를 쉬었으므로, 전체 대기 시간에서 30초를 뺀 시간만큼만 신호를 기다립니다.
+                self.wake_event.wait(timeout=(LOOP_INTERVAL_MINUTES * 60) - 30)
                 
             except Exception as e:
                 print(f"🚨 메인 루프 실행 중 치명적 오류 발생: {e}")
