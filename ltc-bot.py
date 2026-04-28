@@ -141,7 +141,7 @@ class AutoTrader:
             df.ta.ema(length=50, append=True)
             df.ta.bbands(length=20, append=True)
             df.ta.atr(length=14, append=True)
-            df['ATR_target'] = df['ATRr_14'] * 0.8
+            df['ATR_target'] = df['ATRr_14'] * 0.7
             
             df.bfill(inplace=True)
             return df
@@ -533,6 +533,9 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
         print("🚀 자동매매 봇 초기화 완료. 메인 루프를 시작합니다.")
         while True:
             try:
+                # 루프 시작 시 알람 초기화 (작업 중 발생하는 체결 신호를 놓치지 않기 위함)
+                self.wake_event.clear() 
+                
                 print(f"\n--- ☀️ AI 기상 및 3단계 시장 분석 시작 ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---")
                 
                 # 미체결 주문 먼저 싹쓸이!
@@ -543,21 +546,18 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                 
                 print(" 네트워크 호출 병렬 처리 중...")
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    # 5개의 API 호출 작업을 스레드풀에 동시에 던집니다.
                     future_exec = executor.submit(self.fetch_data, TIMEFRAME_EXEC)
                     future_trend = executor.submit(self.fetch_data, TIMEFRAME_TREND)
                     future_macro = executor.submit(self.fetch_data, TIMEFRAME_MACRO)
                     future_account = executor.submit(self.get_account_state)
                     future_sentiment = executor.submit(self.get_market_sentiment)
 
-                    # 결과가 모두 도착할 때까지 대기한 후 변수에 할당합니다.
                     df_exec = future_exec.result()
                     df_trend = future_trend.result()
                     df_macro = future_macro.result()
                     account_state = future_account.result()
                     market_sentiment = future_sentiment.result()
 
-                # 데이터가 정상적으로 들어왔는지 유효성 검사 (기존 로직 유지)
                 if df_exec is None or df_exec.empty or df_trend is None or df_trend.empty or df_macro is None or df_macro.empty:
                     time.sleep(60)
                     continue 
@@ -566,24 +566,17 @@ Based on this 3-stage multi-timeframe analysis, what are your next orders?
                     time.sleep(60)
                     continue 
 
-                # 주문 0개인 상태를 AI에게 보고하여 신규 판단 요청
+                # AI 분석 및 주문 실행 (여기서 진입 성공 시 웹소켓이 wake_event를 set 함)
                 signal = self.get_gemini_signal(df_exec, df_trend, df_macro, account_state, market_sentiment)
-                
-                # 방금 판단한 내용을 즉시 실행 (취소 과정 생략)
                 self.execute_orders(signal, account_state)
                 
-                # 주문 직후 발생하는 '즉시 체결(시장가 등)' 먼지가 가라앉기를 3초간 기다립니다.
-                time.sleep(3)
-                # 방금 낸 주문 때문에 사냥개가 울린 알람을 초기화(리셋)하고 안전하게 자러 갑니다.
-                self.wake_event.clear()
+                time.sleep(3) 
                 
                 print(f"💤 {LOOP_INTERVAL_MINUTES}분 동안 대기 모드 진입...")
                 
-                # 1시간을 기다리되, 웹소켓이 wake_event.set()을 누르면 그 즉시 깨어남!
+                # 만약 execute_orders 도중 체결이 되었다면 wait()는 즉시 통과됩니다.
                 self.wake_event.wait(timeout=LOOP_INTERVAL_MINUTES * 60)
                 
-                # 깨어난 후에는 다음 턴을 위해 알람 시계를 다시 초기화
-                self.wake_event.clear()
                 
             except Exception as e:
                 print(f"🚨 메인 루프 실행 중 치명적 오류 발생: {e}")
